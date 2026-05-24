@@ -60,6 +60,9 @@ public:
   /// Boolean if this landmark should be marginalized out
   bool should_marg = false;
 
+  /// Number of camera updates since this landmark had a frontend track observation
+  int unobserved_count = 0;
+
   /// Number of times the update has failed for this feature (we should remove if it fails a couple times!)
   int update_fail_count = 0;
 

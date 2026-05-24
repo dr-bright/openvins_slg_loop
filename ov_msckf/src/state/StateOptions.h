@@ -61,8 +61,14 @@ struct StateOptions {
   /// IMU intrinsic models
   enum ImuModel { KALIBR, RPNG };
 
+  /// Policy for visual SLAM landmark lifetime after frontend tracks are lost
+  enum class SlamLandmarkPolicy { NONE, KEEP_INACTIVE };
+
   /// What model our IMU intrinsics are
   ImuModel imu_model = ImuModel::KALIBR;
+
+  /// How visual SLAM landmarks should be retained after their frontend track is lost
+  SlamLandmarkPolicy slam_landmark_policy = SlamLandmarkPolicy::NONE;
 
   /// Max clone size of sliding window
   int max_clone_size = 11;
@@ -126,6 +132,11 @@ struct StateOptions {
       parser->parse_config("num_aruco", max_aruco_features);
       parser->parse_config("max_cameras", num_cameras);
 
+      // SLAM landmark lifetime policy
+      std::string slam_landmark_policy_str = as_string(slam_landmark_policy);
+      parser->parse_config("slam_landmark_policy", slam_landmark_policy_str, false);
+      slam_landmark_policy = slam_landmark_policy_from_string(slam_landmark_policy_str);
+
       // Feature representations
       std::string rep1 = ov_type::LandmarkRepresentation::as_string(feat_rep_msckf);
       parser->parse_config("feat_rep_msckf", rep1);
@@ -169,9 +180,34 @@ struct StateOptions {
     PRINT_DEBUG("  - max_msckf_in_update: %d\n", max_msckf_in_update);
     PRINT_DEBUG("  - max_aruco: %d\n", max_aruco_features);
     PRINT_DEBUG("  - max_cameras: %d\n", num_cameras);
+    PRINT_DEBUG("  - slam_landmark_policy: %s\n", as_string(slam_landmark_policy).c_str());
     PRINT_DEBUG("  - feat_rep_msckf: %s\n", ov_type::LandmarkRepresentation::as_string(feat_rep_msckf).c_str());
     PRINT_DEBUG("  - feat_rep_slam: %s\n", ov_type::LandmarkRepresentation::as_string(feat_rep_slam).c_str());
     PRINT_DEBUG("  - feat_rep_aruco: %s\n", ov_type::LandmarkRepresentation::as_string(feat_rep_aruco).c_str());
+  }
+
+  /**
+   * @brief Returns a string representation of this enum value.
+   */
+  static inline std::string as_string(SlamLandmarkPolicy policy) {
+    if (policy == SlamLandmarkPolicy::NONE)
+      return "NONE";
+    if (policy == SlamLandmarkPolicy::KEEP_INACTIVE)
+      return "KEEP_INACTIVE";
+    return "UNKNOWN";
+  }
+
+  /**
+   * @brief Returns the SLAM landmark policy enum from its string representation.
+   */
+  static inline SlamLandmarkPolicy slam_landmark_policy_from_string(const std::string &policy) {
+    if (policy == "NONE")
+      return SlamLandmarkPolicy::NONE;
+    if (policy == "KEEP_INACTIVE")
+      return SlamLandmarkPolicy::KEEP_INACTIVE;
+    PRINT_ERROR(RED "invalid slam_landmark_policy: %s\n" RESET, policy.c_str());
+    PRINT_ERROR(RED "please select a valid policy: NONE, KEEP_INACTIVE\n" RESET);
+    std::exit(EXIT_FAILURE);
   }
 };
 
