@@ -442,6 +442,35 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     it0++;
   }
 
+  // If extended landmark lifetime is enabled, make room for new SLAM candidates
+  // by evicting currently inactive visual landmarks first.
+  if (state->_options.slam_landmark_policy != StateOptions::SlamLandmarkPolicy::NONE &&
+      state->_options.max_slam_features > 0 && message.timestamp - startup_time >= params.dt_slam_delay && !feats_maxtracks.empty()) {
+    int slam_capacity = state->_options.max_slam_features + curr_aruco_tags;
+    int available_slots = slam_capacity - (int)state->_features_SLAM.size();
+    int desired_slots = (int)feats_maxtracks.size();
+    int needed_slots = std::max(0, desired_slots - std::max(0, available_slots));
+    if (needed_slots > 0) {
+      std::vector<std::shared_ptr<Landmark>> inactive_landmarks;
+      for (const auto &landmark : state->_features_SLAM) {
+        if ((int)landmark.second->_featid > 4 * state->_options.max_aruco_features && landmark.second->unobserved_count > 0) {
+          inactive_landmarks.push_back(landmark.second);
+        }
+      }
+      std::sort(inactive_landmarks.begin(), inactive_landmarks.end(),
+                [](const std::shared_ptr<Landmark> &a, const std::shared_ptr<Landmark> &b) {
+                  return a->unobserved_count > b->unobserved_count;
+                });
+      int evict_count = std::min(needed_slots, (int)inactive_landmarks.size());
+      for (int i = 0; i < evict_count; i++) {
+        inactive_landmarks.at(i)->should_marg = true;
+      }
+      if (evict_count > 0) {
+        StateHelper::marginalize_slam(state);
+      }
+    }
+  }
+
   // Append a new SLAM feature if we have the room to do so
   // Also check that we have waited our delay amount (normally prevents bad first set of slam points)
   if (state->_options.max_slam_features > 0 && message.timestamp - startup_time >= params.dt_slam_delay &&
@@ -469,13 +498,20 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
         feats_slam.push_back(feat1);
     }
     std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
-    if (feat2 != nullptr)
+    if (feat2 != nullptr) {
       feats_slam.push_back(feat2);
+      landmark.second->unobserved_count = 0;
+    }
     assert(landmark.second->_unique_camera_id != -1);
     bool current_unique_cam =
         std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
-    if (feat2 == nullptr && current_unique_cam)
-      landmark.second->should_marg = true;
+    if (feat2 == nullptr && current_unique_cam) {
+      if (state->_options.slam_landmark_policy == StateOptions::SlamLandmarkPolicy::NONE) {
+        landmark.second->should_marg = true;
+      } else if ((int)landmark.second->_featid > 4 * state->_options.max_aruco_features) {
+        landmark.second->unobserved_count++;
+      }
+    }
     if (landmark.second->update_fail_count > 1)
       landmark.second->should_marg = true;
   }
