@@ -89,10 +89,9 @@ downsample_cameras: false # will downsample image in half if true
 num_opencv_threads: 4 # -1: auto, 0-1: serial, >1: number of threads
 histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
 
-# SuperPoint + LightGlue tracker params (used by ros1_serial_msckf_lightglue)
-# NOTE: keep use_klt=true for now; these are parsed and validated by the SLG serial node.
-slg_superpoint_onnx_path: "/root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint.onnx"
-slg_lightglue_onnx_path: "/root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx"
+# SuperPoint + LightGlue tracker params (used by ros1_serial_msckf when use_klt is false)
+slg_superpoint_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint.onnx"
+slg_lightglue_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx"
 slg_use_gpu: true
 slg_max_keypoints: 400
 slg_detect_min_confidence: 0.1

@@ -50,8 +50,8 @@
     <arg name="slg_refill_tracks" default="true" />
 
     <!-- MASTER NODE! -->
-<!--    <node name="ov_msckf" pkg="ov_lightglue" type="ros1_serial_msckf_lightglue" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
-    <node name="ov_msckf" pkg="ov_lightglue" type="ros1_serial_msckf_lightglue" output="screen" clear_params="true" required="true">
+<!--    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
+    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true">
 
         <!-- bag parameters -->
         <param name="path_bag"                 type="str"    value="$(arg bag)" />
@@ -92,7 +92,7 @@
 
     <!-- record the trajectory if enabled -->
     <group if="$(arg dosave)">
-        <node name="recorder_estimate" pkg="ov_eval" type="pose_to_file" output="screen" required="true">
+        <node name="recorder_estimate" pkg="ov_lightglue" type="pose_to_file" output="screen" required="true">
             <param name="topic"      type="str" value="/ov_msckf/poseimu" />
             <param name="topic_type" type="str" value="PoseWithCovarianceStamped" />
             <param name="output"     type="str" value="$(arg path_est)" />

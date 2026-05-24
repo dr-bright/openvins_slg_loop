@@ -25,9 +25,9 @@
 #include "feat/FeatureDatabase.h"
 #include "feat/FeatureInitializer.h"
 #include "track/TrackAruco.h"
-#include "track/TrackDescriptor.h"
 #include "track/TrackKLT.h"
 #include "track/TrackSIM.h"
+#include "track/TrackSuperLightGlue.h"
 #include "types/Landmark.h"
 #include "types/LandmarkRepresentation.h"
 #include "utils/opencv_lambda_body.h"
@@ -134,9 +134,14 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist));
   } else {
-    trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
+    if (params.slg_config.superpoint_onnx_path.empty() || params.slg_config.lightglue_onnx_path.empty()) {
+      PRINT_ERROR(RED "VioManager(): SLG selected with use_klt=false, but model paths are empty\n" RESET);
+      PRINT_ERROR(RED "please set slg_superpoint_onnx_path and slg_lightglue_onnx_path\n" RESET);
+      std::exit(EXIT_FAILURE);
+    }
+    trackFEATS = std::shared_ptr<TrackBase>(new ov_lightglue::TrackSuperLightGlue(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio));
+        params.slg_config));
   }
 
   // Initialize our aruco tag extractor
@@ -711,4 +716,5 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
                state->_calib_imu_tg->value()(4), state->_calib_imu_tg->value()(5), state->_calib_imu_tg->value()(6),
                state->_calib_imu_tg->value()(7), state->_calib_imu_tg->value()(8));
   }
+  PRINT_INFO(YELLOW "total of %zu SLAM features in state\n" RESET, state->_features_SLAM.size());
 }

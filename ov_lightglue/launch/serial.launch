@@ -50,8 +50,8 @@
     <arg name="slg_refill_tracks" default="true" />
 
     <!-- MASTER NODE! -->
-<!--    <node name="ov_msckf" pkg="ov_lightglue" type="ros1_serial_msckf_lightglue" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
-    <node name="ov_msckf" pkg="ov_lightglue" type="ros1_serial_msckf_lightglue" output="screen" clear_params="true" required="true">
+<!--    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
+    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true">
 
         <!-- bag parameters -->
         <param name="path_bag"                 type="str"    value="$(arg bag)" />
@@ -92,39 +92,30 @@
 
     <!-- record the trajectory if enabled -->
     <group if="$(arg dosave)">
-        <node name="recorder_estimate" pkg="ov_eval" type="pose_to_file" output="screen" required="true">
+        <node name="recorder_estimate" pkg="ov_lightglue" type="pose_to_file" output="screen" required="true">
             <param name="topic"      type="str" value="/ov_msckf/poseimu" />
             <param name="topic_type" type="str" value="PoseWithCovarianceStamped" />
             <param name="output"     type="str" value="$(arg path_est)" />
         </node>
     </group>
 
-    <!-- record runtime metrics if enabled -->
+    <!-- evaluate estimator outputs if enabled -->
     <group if="$(arg doeval)">
-        <node name="record_metrics" pkg="ov_lightglue" type="record_metrics" output="screen" required="true">
+        <node name="evaluate_estimator" pkg="ov_lightglue" type="evaluate_estimator" output="screen" required="true">
+            <param name="enable_csv"         type="bool"   value="true" />
+            <param name="enable_viz"         type="bool"   value="$(arg doviz)" />
             <param name="output_csv"         type="str"    value="$(arg path_metrics)" />
+            <param name="output_mp4"         type="str"    value="$(arg viz_path)" />
+            <param name="fps"                type="double" value="$(arg vis_fps)" />
             <param name="topic_pose"         type="str"    value="/ov_msckf/poseimu" />
             <param name="topic_odom"         type="str"    value="/ov_msckf/odomimu" />
             <param name="topic_points_slam"  type="str"    value="/ov_msckf/points_slam" />
             <param name="topic_points_msckf" type="str"    value="/ov_msckf/points_msckf" />
             <param name="topic_points_aruco" type="str"    value="/ov_msckf/points_aruco" />
             <param name="topic_pose_gt"      type="str"    value="/ov_msckf/posegt" />
-            <param name="max_gt_time_diff_sec" type="double" value="0.05" />
-        </node>
-    </group>
-
-    <!-- record estimator visualization mp4 if enabled -->
-    <group if="$(arg doviz)">
-        <node name="record_estimator_viz" pkg="ov_lightglue" type="record_estimator_viz" output="screen" required="true">
-            <param name="output_mp4"         type="str"    value="$(arg viz_path)" />
-            <param name="fps"                type="double" value="$(arg vis_fps)" />
             <param name="topic_image"        type="str"    value="/ov_msckf/trackhist" />
             <param name="topic_loop_feats"   type="str"    value="/ov_msckf/loop_feats" />
-            <param name="topic_points_slam"  type="str"    value="/ov_msckf/points_slam" />
-            <param name="topic_points_msckf" type="str"    value="/ov_msckf/points_msckf" />
-            <param name="topic_points_aruco" type="str"    value="/ov_msckf/points_aruco" />
-            <param name="topic_pose"         type="str"    value="/ov_msckf/poseimu" />
-            <param name="topic_odom"         type="str"    value="/ov_msckf/odomimu" />
+            <param name="max_gt_time_diff_sec" type="double" value="0.05" />
             <param name="max_sync_time_diff_sec" type="double" value="0.10" />
             <param name="slam_assoc_threshold_m" type="double" value="0.10" />
         </node>

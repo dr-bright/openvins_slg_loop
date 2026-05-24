@@ -44,6 +44,8 @@
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 
+#include "track/TrackerSuperLightGlueConfig.h"
+
 namespace ov_msckf {
 
 /**
@@ -441,6 +443,9 @@ struct VioManagerOptions {
   /// Frequency we want to track images at (higher freq ones will be dropped)
   double track_frequency = 20.0;
 
+  /// SuperPoint + LightGlue tracker configuration
+  ov_lightglue::TrackSuperLightGlueConfig slg_config;
+
   /// Parameters used by our feature initialize / triangulator
   ov_core::FeatureInitializerOptions featinit_options;
 
@@ -482,6 +487,19 @@ struct VioManagerOptions {
       }
       parser->parse_config("knn_ratio", knn_ratio);
       parser->parse_config("track_frequency", track_frequency);
+      parser->parse_config("slg_superpoint_onnx_path", slg_config.superpoint_onnx_path, false);
+      parser->parse_config("slg_lightglue_onnx_path", slg_config.lightglue_onnx_path, false);
+      parser->parse_config("slg_use_gpu", slg_config.use_gpu, false);
+      parser->parse_config("slg_max_keypoints", slg_config.max_keypoints, false);
+      parser->parse_config("slg_detect_min_confidence", slg_config.detect_min_confidence, false);
+      parser->parse_config("slg_match_min_confidence", slg_config.match_min_confidence, false);
+      parser->parse_config("slg_enable_temporal_ransac", slg_config.enable_temporal_ransac, false);
+      parser->parse_config("slg_temporal_ransac_min_matches", slg_config.temporal_ransac_min_matches, false);
+      parser->parse_config("slg_temporal_ransac_min_inliers", slg_config.temporal_ransac_min_inliers, false);
+      parser->parse_config("slg_temporal_ransac_threshold_px", slg_config.temporal_ransac_threshold_px, false);
+      parser->parse_config("slg_temporal_ransac_confidence", slg_config.temporal_ransac_confidence, false);
+      parser->parse_config("slg_min_feature_distance_px", slg_config.min_feature_distance_px, false);
+      parser->parse_config("slg_refill_tracks", slg_config.refill_tracks, false);
     }
     PRINT_DEBUG("FEATURE TRACKING PARAMETERS:\n");
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
@@ -499,6 +517,21 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - hist method: %d\n", (int)histogram_method);
     PRINT_DEBUG("  - knn ratio: %.3f\n", knn_ratio);
     PRINT_DEBUG("  - track frequency: %.1f\n", track_frequency);
+    if (!use_klt) {
+      PRINT_DEBUG("  - slg superpoint model: %s\n", slg_config.superpoint_onnx_path.c_str());
+      PRINT_DEBUG("  - slg lightglue model: %s\n", slg_config.lightglue_onnx_path.c_str());
+      PRINT_DEBUG("  - slg use gpu: %d\n", slg_config.use_gpu);
+      PRINT_DEBUG("  - slg max keypoints: %d\n", slg_config.max_keypoints);
+      PRINT_DEBUG("  - slg detect min confidence: %.3f\n", slg_config.detect_min_confidence);
+      PRINT_DEBUG("  - slg match min confidence: %.3f\n", slg_config.match_min_confidence);
+      PRINT_DEBUG("  - slg temporal ransac: %d\n", slg_config.enable_temporal_ransac);
+      PRINT_DEBUG("  - slg temporal ransac min matches: %d\n", slg_config.temporal_ransac_min_matches);
+      PRINT_DEBUG("  - slg temporal ransac min inliers: %d\n", slg_config.temporal_ransac_min_inliers);
+      PRINT_DEBUG("  - slg temporal ransac threshold px: %.3f\n", slg_config.temporal_ransac_threshold_px);
+      PRINT_DEBUG("  - slg temporal ransac confidence: %.3f\n", slg_config.temporal_ransac_confidence);
+      PRINT_DEBUG("  - slg min feature distance px: %d\n", slg_config.min_feature_distance_px);
+      PRINT_DEBUG("  - slg refill tracks: %d\n", slg_config.refill_tracks);
+    }
     featinit_options.print(parser);
   }
 
