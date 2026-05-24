@@ -22,9 +22,12 @@
 #include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
+#include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
 
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/imgcodecs.hpp>
 #include <memory>
 
 #include "core/VioManager.h"
@@ -124,6 +127,27 @@ int main(int argc, char **argv) {
   //===================================================================================
   //===================================================================================
 
+  auto decode_image_msg = [](const rosbag::MessageInstance &msg) -> sensor_msgs::ImageConstPtr {
+    sensor_msgs::ImageConstPtr img = msg.instantiate<sensor_msgs::Image>();
+    if (img != nullptr) {
+      return img;
+    }
+
+    sensor_msgs::CompressedImageConstPtr img_compressed = msg.instantiate<sensor_msgs::CompressedImage>();
+    if (img_compressed == nullptr) {
+      return nullptr;
+    }
+
+    cv::Mat compressed_buffer(static_cast<int>(img_compressed->data.size()), 1, CV_8UC1,
+                              const_cast<uint8_t *>(img_compressed->data.data()));
+    cv::Mat image = cv::imdecode(compressed_buffer, cv::IMREAD_GRAYSCALE);
+    if (image.empty()) {
+      return nullptr;
+    }
+
+    return cv_bridge::CvImage(img_compressed->header, sensor_msgs::image_encodings::MONO8, image).toImageMsg();
+  };
+
   // Load rosbag here, and find messages we can play
   rosbag::Bag bag;
   bag.open(path_to_bag, rosbag::bagmode::Read);
@@ -170,13 +194,11 @@ int main(int argc, char **argv) {
     }
     for (int i = 0; i < params.state_options.num_cameras; i++) {
       if (msg.getTopic() == topic_cameras.at(i)) {
-        // sensor_msgs::CompressedImage::ConstPtr img_c = msg.instantiate<sensor_msgs::CompressedImage>();
-        // sensor_msgs::Image::ConstPtr img_i = msg.instantiate<sensor_msgs::Image>();
-        // if (img_c == nullptr && img_i == nullptr) {
-        //   PRINT_ERROR(RED "[SERIAL]: Image topic has unmatched message types!!\n" RESET);
-        //   PRINT_ERROR(RED "[SERIAL]: Supports: sensor_msgs::Image and sensor_msgs::CompressedImage\n" RESET);
-        //   return EXIT_FAILURE;
-        // }
+        if (decode_image_msg(msg) == nullptr) {
+          PRINT_ERROR(RED "[SERIAL]: Image topic has unmatched message type or decode failure.\n" RESET);
+          PRINT_ERROR(RED "[SERIAL]: Supports: sensor_msgs::Image and sensor_msgs::CompressedImage\n" RESET);
+          return EXIT_FAILURE;
+        }
         msgs.push_back(msg);
         max_camera_time = std::max(max_camera_time, msg.getTime().toSec());
       }
@@ -258,13 +280,22 @@ int main(int argc, char **argv) {
       // Pass our data into our visualizer callbacks!
       // PRINT_DEBUG("processing cam = %.3f sec\n", msgs.at(m).getTime().toSec() - time_init.toSec());
       if (params.state_options.num_cameras == 1) {
-        viz->callback_monocular(msgs.at(camid_to_msg_index.at(0)).instantiate<sensor_msgs::Image>(), 0);
+        auto msg0 = decode_image_msg(msgs.at(camid_to_msg_index.at(0)));
+        if (msg0 == nullptr) {
+          PRINT_ERROR(RED "[SERIAL]: Failed to decode camera frame for cam0\n" RESET);
+          return EXIT_FAILURE;
+        }
+        viz->callback_monocular(msg0, 0);
       } else if (params.state_options.num_cameras == 2) {
-        auto msg0 = msgs.at(camid_to_msg_index.at(0));
-        auto msg1 = msgs.at(camid_to_msg_index.at(1));
+        auto msg0 = decode_image_msg(msgs.at(camid_to_msg_index.at(0)));
+        auto msg1 = decode_image_msg(msgs.at(camid_to_msg_index.at(1)));
+        if (msg0 == nullptr || msg1 == nullptr) {
+          PRINT_ERROR(RED "[SERIAL]: Failed to decode stereo camera frame\n" RESET);
+          return EXIT_FAILURE;
+        }
         used_index.insert(camid_to_msg_index.at(0)); // skip this message
         used_index.insert(camid_to_msg_index.at(1)); // skip this message
-        viz->callback_stereo(msg0.instantiate<sensor_msgs::Image>(), msg1.instantiate<sensor_msgs::Image>(), 0, 1);
+        viz->callback_stereo(msg0, msg1, 0, 1);
       } else {
         PRINT_ERROR(RED "[SERIAL]: We currently only support 1 or 2 camera serial input....\n" RESET);
         return EXIT_FAILURE;
