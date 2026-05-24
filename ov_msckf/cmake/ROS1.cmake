@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.3)
 
 # Find ROS build system
-find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init)
+find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init ov_lightglue)
 
 # Describe ROS project
 if (catkin_FOUND AND ENABLE_ROS)
     add_definitions(-DROS_AVAILABLE=1)
     catkin_package(
-            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init
+            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init ov_lightglue
             INCLUDE_DIRS src/
             LIBRARIES ov_msckf_lib
     )
@@ -157,4 +157,3 @@ install(TARGETS test_sim_repeat
         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
-
