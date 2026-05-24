@@ -30,7 +30,7 @@
 
     <!-- if we should viz the groundtruth -->
     <arg name="dolivetraj"  default="false" />
-    <arg name="path_gt"     default="$(find ov_data)/$(arg config)/$(arg dataset).txt" />
+    <arg name="path_gt"     default="" />
 
     <!-- SuperPoint + LightGlue model paths -->
     <arg name="slg_superpoint_onnx_path" default="$(find ov_lightglue)/../onnx/weights_latest/superpoint.onnx" />
