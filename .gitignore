@@ -1,3 +1,7 @@
+/onnx*
+
+__pycache__/
+
 cmake-build-*
 build
 Build
