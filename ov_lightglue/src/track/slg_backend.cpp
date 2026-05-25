@@ -279,11 +279,31 @@ void slg_backend::run_superpoint(const cv::Mat &img, std::vector<cv::KeyPoint> &
   const float *score_data = out_tensors[1].GetTensorData<float>();
   const float *desc_data = out_tensors[2].GetTensorData<float>();
 
+  float confidence_threshold = min_confidence;
+  if (min_confidence < 0.0f) {
+    double mean = 0.0;
+    for (int i = 0; i < n; ++i) {
+      mean += score_data[i];
+    }
+    mean /= static_cast<double>(n);
+
+    double variance = 0.0;
+    for (int i = 0; i < n; ++i) {
+      const double diff = static_cast<double>(score_data[i]) - mean;
+      variance += diff * diff;
+    }
+    variance /= static_cast<double>(n);
+
+    const double stddev = std::sqrt(std::max(0.0, variance));
+    const double correction = std::max(0.0, 1.0 - static_cast<double>(min_confidence));
+    confidence_threshold = static_cast<float>(mean + 0.5 * std::abs(stddev) + correction);
+  }
+
   std::vector<int> selected;
   selected.reserve(static_cast<size_t>(n));
-  const bool apply_conf_threshold = (min_confidence >= 0.0f);
+  const bool apply_conf_threshold = (min_confidence != 0.0f);
   for (int i = 0; i < n; ++i) {
-    if (!apply_conf_threshold || score_data[i] >= min_confidence) {
+    if (!apply_conf_threshold || score_data[i] >= confidence_threshold) {
       selected.push_back(i);
     }
   }
