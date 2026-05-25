@@ -62,7 +62,7 @@ struct StateOptions {
   enum ImuModel { KALIBR, RPNG };
 
   /// Policy for visual SLAM landmark lifetime after frontend tracks are lost
-  enum class SlamLandmarkPolicy { NONE, KEEP_INACTIVE };
+  enum class SlamLandmarkPolicy { NONE, KEEP_INACTIVE, SIMPLE };
 
   /// What model our IMU intrinsics are
   ImuModel imu_model = ImuModel::KALIBR;
@@ -194,6 +194,8 @@ struct StateOptions {
       return "NONE";
     if (policy == SlamLandmarkPolicy::KEEP_INACTIVE)
       return "KEEP_INACTIVE";
+    if (policy == SlamLandmarkPolicy::SIMPLE)
+      return "SIMPLE";
     return "UNKNOWN";
   }
 
@@ -205,8 +207,10 @@ struct StateOptions {
       return SlamLandmarkPolicy::NONE;
     if (policy == "KEEP_INACTIVE")
       return SlamLandmarkPolicy::KEEP_INACTIVE;
+    if (policy == "SIMPLE")
+      return SlamLandmarkPolicy::SIMPLE;
     PRINT_ERROR(RED "invalid slam_landmark_policy: %s\n" RESET, policy.c_str());
-    PRINT_ERROR(RED "please select a valid policy: NONE, KEEP_INACTIVE\n" RESET);
+    PRINT_ERROR(RED "please select a valid policy: NONE, KEEP_INACTIVE, SIMPLE\n" RESET);
     std::exit(EXIT_FAILURE);
   }
 };
