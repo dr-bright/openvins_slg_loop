@@ -8,7 +8,9 @@
 #include "track/slg_backend.h"
 
 #include "cam/CamBase.h"
+#include "feat/Feature.h"
 #include "feat/FeatureDatabase.h"
+#include "utils/print.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +27,21 @@ TrackSuperLightGlue::TrackSuperLightGlue(std::unordered_map<size_t, std::shared_
                                          bool stereo, HistogramMethod histmethod, TrackSuperLightGlueConfig config)
     : TrackBase(std::move(cameras), numfeats, numaruco, stereo, histmethod), config_(std::move(config)) {
   initialize_models();
+  if (config_.detect_min_confidence >= 0.0f) {
+    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+               "detect_mode=static threshold=%.3f\n",
+               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
+               config_.detect_min_confidence);
+  } else if (config_.detect_min_confidence > -1.0f) {
+    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+               "detect_mode=simple_adaptive\n",
+               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac);
+  } else {
+    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+               "detect_mode=full_adaptive mu1=%.3f mu2=%.3f clamp=[%.3f, %.3f]\n",
+               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
+               config_.detect_mu1, config_.detect_mu2, config_.detect_clamp_min, config_.detect_clamp_max);
+  }
 }
 
 TrackSuperLightGlue::~TrackSuperLightGlue() = default;
@@ -57,7 +74,7 @@ void TrackSuperLightGlue::feed_monocular(const ov_core::CameraData &message, siz
 
   std::vector<cv::KeyPoint> curr_kpts;
   cv::Mat curr_desc;
-  run_superpoint(img, curr_kpts, curr_desc);
+  run_superpoint(cam_id, img, curr_kpts, curr_desc);
 
   if (curr_kpts.empty() || curr_desc.empty()) {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
@@ -149,13 +166,13 @@ void TrackSuperLightGlue::initialize_models() {
   backend_.reset(new slg_backend(config_.superpoint_onnx_path, config_.lightglue_onnx_path, config_.use_gpu));
 }
 
-void TrackSuperLightGlue::run_superpoint(const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc) {
+void TrackSuperLightGlue::run_superpoint(size_t cam_id, const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc) {
   if (img.empty()) {
     kpts.clear();
     desc.release();
     return;
   }
-  backend_->run_superpoint(img, kpts, desc, config_.max_keypoints, config_.detect_min_confidence);
+  backend_->run_superpoint(img, kpts, desc, config_.max_keypoints, superpoint_min_confidence_arg(cam_id));
 }
 
 void TrackSuperLightGlue::run_lightglue(const cv::Size &size0, const std::vector<cv::KeyPoint> &kpts0, const cv::Mat &desc0,
@@ -314,6 +331,43 @@ void TrackSuperLightGlue::append_descriptor_row(const cv::Mat &source_desc, int 
     return;
   }
   out_desc.push_back(source_desc.row(row_idx));
+}
+
+float TrackSuperLightGlue::superpoint_min_confidence_arg(size_t cam_id) const {
+  if (config_.detect_min_confidence >= 0.0f) {
+    return config_.detect_min_confidence;
+  }
+  if (config_.detect_min_confidence > -1.0f) {
+    return config_.detect_min_confidence;
+  }
+
+  const auto features = database->get_internal_data();
+  double newest_timestamp = -1.0;
+  for (const auto &id_feat : features) {
+    const auto it_times = id_feat.second->timestamps.find(cam_id);
+    if (it_times == id_feat.second->timestamps.end() || it_times->second.empty()) {
+      continue;
+    }
+    newest_timestamp = std::max(newest_timestamp, it_times->second.back());
+  }
+
+  int m = 0;
+  if (newest_timestamp >= 0.0) {
+    for (const auto &id_feat : features) {
+      const auto it_times = id_feat.second->timestamps.find(cam_id);
+      if (it_times == id_feat.second->timestamps.end() || it_times->second.size() < 2) {
+        continue;
+      }
+      if (it_times->second.back() == newest_timestamp) {
+        ++m;
+      }
+    }
+  }
+
+  const double correction = static_cast<double>(config_.detect_mu1) * 2.0d / (1.0d + std::exp(-static_cast<double>(config_.detect_mu2) * m)) - config_.detect_mu1;
+  const double clamped = std::max(static_cast<double>(config_.detect_clamp_min),
+                                  std::min(static_cast<double>(config_.detect_clamp_max), correction));
+  return static_cast<float>(-1.0 - clamped);
 }
 
 } // namespace ov_lightglue

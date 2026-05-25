@@ -2,24 +2,24 @@
  * Rosbag to MP4 visualization tool.
  * Compile-time selectable tracker implementation.
   rosrun ov_lightglue evaluate_tracker_klt \
-    /root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint.onnx \
-    /root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx \
+    /root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint.onnx \
+    /root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx \
     1 \
     /data/gopro10/slow_fast/1440.bag \
     /cam0/image_raw \
-    /data/gopro10/slow_fast/ov_lightglue_tests/klt_eval.mp4 \
-    /data/gopro10/slow_fast/ov_lightglue_tests/klt_metrics.csv \
-    16
+    /data/gopro10/slow_fast/openvins_slg_slam/klt_eval.mp4 \
+    /data/gopro10/slow_fast/openvins_slg_slam/klt_metrics.csv \
+    128
   
   rosrun ov_lightglue evaluate_tracker_slg \
-    /root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint.onnx \
-    /root/catkin_ws/src/openvins_lightglue/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx \
+    /root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint.onnx \
+    /root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx \
     1 \
     /data/gopro10/slow_fast/1440.bag \
     /cam0/image_raw \
-    /data/gopro10/slow_fast/ov_lightglue_tests/slg_eval.mp4 \
-    /data/gopro10/slow_fast/ov_lightglue_tests/slg_metrics.csv \
-    16
+    /data/gopro10/slow_fast/openvins_slg_slam/slg_eval.mp4 \
+    /data/gopro10/slow_fast/openvins_slg_slam/slg_metrics.csv \
+    128
  */
 
 #include "cam/CamRadtan.h"
@@ -143,7 +143,7 @@ double infer_fps_from_bag(rosbag::View &view) {
 }
 
 std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, const std::string &superpoint_onnx_path,
-                                                   const std::string &lightglue_onnx_path, bool use_gpu) {
+                                                   const std::string &lightglue_onnx_path, bool use_gpu, float min_confidence) {
   std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras;
   auto cam = std::make_shared<ov_core::CamRadtan>(img_gray.cols, img_gray.rows);
   Eigen::Matrix<double, 8, 1> calib;
@@ -157,7 +157,7 @@ std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, cons
   cfg.lightglue_onnx_path = lightglue_onnx_path;
   cfg.use_gpu = use_gpu;
   cfg.max_keypoints = 1024;
-  cfg.detect_min_confidence = -1.0f;
+  cfg.detect_min_confidence = min_confidence;
   cfg.match_min_confidence = -1.0f;
 
   return std::unique_ptr<ov_core::TrackBase>(
@@ -178,12 +178,7 @@ std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, cons
 } // namespace
 
 int main(int argc, char **argv) {
-#if defined(OVLG_TRACKER_SLG)
-  const char *usage = " <superpoint.onnx> <lightglue.onnx> <use_gpu={0,1}> <bag> <image_topic> <output.mp4> <output.csv> [P=16]";
-#else
-  const char *usage =
-      " <unused_superpoint_path> <unused_lightglue_path> <unused_use_gpu={0,1}> <bag> <image_topic> <output.mp4> <output.csv> [P=16]";
-#endif
+  const char *usage = " <superpoint.onnx> <lightglue.onnx> <use_gpu={0,1}> <bag> <image_topic> <output.mp4> <output.csv> [P=16] [T=-0.5]";
 
   if (argc < 8) {
     std::cerr << "Usage: " << argv[0] << usage << std::endl;
@@ -198,11 +193,16 @@ int main(int argc, char **argv) {
   const std::string output_mp4 = argv[6];
   const std::string output_csv = argv[7];
   size_t max_generation = 16;
-  if (argc >= 9) {
+  if (argc > 8) {
     const int parsed = std::atoi(argv[8]);
     if (parsed > 0) {
       max_generation = static_cast<size_t>(parsed);
     }
+  }
+  float min_confidence = -0.5;
+  if (argc > 9) {
+    const float parsed = std::atof(argv[9]);
+    min_confidence = parsed;
   }
 
   try {
@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
       }
 
       if (!tracker_initialized) {
-        tracker = create_tracker(img_gray, superpoint_onnx_path, lightglue_onnx_path, use_gpu);
+        tracker = create_tracker(img_gray, superpoint_onnx_path, lightglue_onnx_path, use_gpu, min_confidence);
         tracker_initialized = true;
       }
 

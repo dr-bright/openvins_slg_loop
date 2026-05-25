@@ -55,6 +55,11 @@ inline bool log_info_enabled(OrtLoggingLevel verbosity) {
   return static_cast<int>(verbosity) <= static_cast<int>(ORT_LOGGING_LEVEL_INFO);
 }
 
+inline bool log_verbose_enabled(OrtLoggingLevel verbosity) {
+  return static_cast<int>(verbosity) <= static_cast<int>(ORT_LOGGING_LEVEL_VERBOSE);
+}
+
+
 inline cv::Mat preprocess_image(const cv::Mat &img, bool force_gray) {
   cv::Mat work = img;
   if (force_gray && img.channels() == 3) {
@@ -130,7 +135,9 @@ inline std::vector<std::vector<int64_t>> get_input_shapes(const Ort::Session &se
 
 struct slg_backend::impl {
   impl(const std::string &sp_path, const std::string &lg_path, bool use_gpu_requested, log_level verbosity_level)
-      : superpoint_onnx_path(sp_path), lightglue_onnx_path(lg_path), use_gpu(use_gpu_requested) {
+      : superpoint_onnx_path(sp_path), lightglue_onnx_path(lg_path), use_gpu(use_gpu_requested),
+        verbosity_level(verbosity_level)
+    {
     const OrtLoggingLevel verbosity = to_ort_log_level(verbosity_level);
 
     env.reset(new Ort::Env(verbosity, "ov_lightglue"));
@@ -199,6 +206,8 @@ struct slg_backend::impl {
   const std::string superpoint_onnx_path;
   const std::string lightglue_onnx_path;
   const bool use_gpu = true;
+
+  log_level verbosity_level;
 
   std::unique_ptr<Ort::Env> env;
   std::unique_ptr<Ort::SessionOptions> session_options;
@@ -295,8 +304,13 @@ void slg_backend::run_superpoint(const cv::Mat &img, std::vector<cv::KeyPoint> &
     variance /= static_cast<double>(n);
 
     const double stddev = std::sqrt(std::max(0.0, variance));
-    const double correction = std::max(0.0, 1.0 - static_cast<double>(min_confidence));
+    const double correction = - std::min(0.0, 1.0 + static_cast<double>(min_confidence));
     confidence_threshold = static_cast<float>(mean + 0.5 * std::abs(stddev) + correction);
+
+    if (impl_->verbosity_level == log_level::info) {
+      std::cerr << "[ov_lightglue] adaptive threshold computation, mean: " << mean
+      << ", stddev: " << stddev << ", correction: " << correction << "\n";
+    }
   }
 
   std::vector<int> selected;
