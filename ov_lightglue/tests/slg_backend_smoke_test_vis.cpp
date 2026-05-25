@@ -156,8 +156,8 @@ int main(int argc, char **argv) {
     std::vector<cv::KeyPoint> kpts1;
     cv::Mat desc0;
     cv::Mat desc1;
-    backend.run_superpoint(img0, kpts0, desc0, 1024, -1.0f);
-    backend.run_superpoint(img1, kpts1, desc1, 1024, -1.0f);
+    backend.run_superpoint(img0, kpts0, desc0, 1024, -0.5f);
+    backend.run_superpoint(img1, kpts1, desc1, 1024, -0.5f);
 
     std::vector<cv::DMatch> matches;
     backend.run_lightglue(img0.size(), kpts0, desc0, img1.size(), kpts1, desc1, matches, -1.0f);

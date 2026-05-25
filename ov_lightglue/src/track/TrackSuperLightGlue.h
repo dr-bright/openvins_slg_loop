@@ -75,7 +75,7 @@ protected:
    * This wrapper keeps tracker code independent from backend details while enabling
    * centralized handling of empty input cases and output conventions.
    */
-  void run_superpoint(const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc);
+  void run_superpoint(size_t cam_id, const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc);
 
   /**
    * @brief Run LightGlue matching between descriptor sets.
@@ -154,6 +154,15 @@ protected:
    * descriptor assembly logic compact and consistent.
    */
   static void append_descriptor_row(const cv::Mat &source_desc, int row_idx, cv::Mat &out_desc);
+
+  /**
+   * @brief Encode tracker-level adaptive SuperPoint settings into the backend threshold argument.
+   *
+   * The backend owns score-distribution statistics. The tracker only decides whether to use
+   * fixed, simple adaptive, or full adaptive detection, and supplies the previous temporal
+   * match-count correction when requested.
+   */
+  float superpoint_min_confidence_arg(size_t cam_id) const;
 
 protected:
   std::unique_ptr<slg_backend> backend_;

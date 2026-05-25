@@ -25,7 +25,17 @@ struct TrackSuperLightGlueConfig {
   /// Hard cap applied after SuperPoint scoring to limit downstream cost.
   int max_keypoints = 1024;
   /// Keep only keypoints with confidence >= this threshold.
+  /// When < 0.0,   simple adaptive threshold is used, dynaic correction = 0.0
+  /// When <= -1.0, full adaptive threshold is used, dynamic correction computed
   float detect_min_confidence = -1.0f;
+  /// Adaptive SuperPoint threshold hyperparameter.
+  float detect_mu1 = 0.1f;
+  /// Adaptive SuperPoint threshold hyperparameter.
+  float detect_mu2 = 0.1f;
+  /// Lower clamp for adaptive SuperPoint detection threshold.
+  float detect_clamp_min = 0.001f;
+  /// Upper clamp for adaptive SuperPoint detection threshold.
+  float detect_clamp_max = 0.95f;
   /// Keep only matches with confidence >= this threshold.
   float match_min_confidence = -1.0f;
   /// Input image width used for LightGlue keypoint normalization.

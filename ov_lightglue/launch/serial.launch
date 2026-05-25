@@ -40,6 +40,10 @@
     <arg name="slg_use_gpu" default="false" />
     <arg name="slg_max_keypoints" default="1024" />
     <arg name="slg_detect_min_confidence" default="-1.0" />
+    <arg name="slg_detect_mu1" default="0.1" />
+    <arg name="slg_detect_mu2" default="0.0" />
+    <arg name="slg_detect_clamp_min" default="0.001" />
+    <arg name="slg_detect_clamp_max" default="0.95" />
     <arg name="slg_match_min_confidence" default="-1.0" />
     <arg name="slg_enable_temporal_ransac" default="true" />
     <arg name="slg_temporal_ransac_min_matches" default="20" />
@@ -79,6 +83,10 @@
         <param name="slg_use_gpu"                   type="bool"   value="$(arg slg_use_gpu)" />
         <param name="slg_max_keypoints"             type="int"    value="$(arg slg_max_keypoints)" />
         <param name="slg_detect_min_confidence"     type="double" value="$(arg slg_detect_min_confidence)" />
+        <param name="slg_detect_mu1"                type="double" value="$(arg slg_detect_mu1)" />
+        <param name="slg_detect_mu2"                type="double" value="$(arg slg_detect_mu2)" />
+        <param name="slg_detect_clamp_min"          type="double" value="$(arg slg_detect_clamp_min)" />
+        <param name="slg_detect_clamp_max"          type="double" value="$(arg slg_detect_clamp_max)" />
         <param name="slg_match_min_confidence"      type="double" value="$(arg slg_match_min_confidence)" />
         <param name="slg_enable_temporal_ransac"    type="bool"   value="$(arg slg_enable_temporal_ransac)" />
         <param name="slg_temporal_ransac_min_matches" type="int"  value="$(arg slg_temporal_ransac_min_matches)" />

@@ -35,8 +35,8 @@ int main(int argc, char **argv) {
 
     std::vector<cv::KeyPoint> kpts0, kpts1;
     cv::Mat desc0, desc1;
-    backend.run_superpoint(img0, kpts0, desc0, 1024, -1.0f);
-    backend.run_superpoint(img1, kpts1, desc1, 1024, -1.0f);
+    backend.run_superpoint(img0, kpts0, desc0, 1024, -0.5f);
+    backend.run_superpoint(img1, kpts1, desc1, 1024, -0.5f);
     const auto t2 = std::chrono::steady_clock::now();
 
     std::vector<cv::DMatch> matches;

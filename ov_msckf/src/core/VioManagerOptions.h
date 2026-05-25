@@ -492,6 +492,10 @@ struct VioManagerOptions {
       parser->parse_config("slg_use_gpu", slg_config.use_gpu, false);
       parser->parse_config("slg_max_keypoints", slg_config.max_keypoints, false);
       parser->parse_config("slg_detect_min_confidence", slg_config.detect_min_confidence, false);
+      parser->parse_config("slg_detect_mu1", slg_config.detect_mu1, false);
+      parser->parse_config("slg_detect_mu2", slg_config.detect_mu2, false);
+      parser->parse_config("slg_detect_clamp_min", slg_config.detect_clamp_min, false);
+      parser->parse_config("slg_detect_clamp_max", slg_config.detect_clamp_max, false);
       parser->parse_config("slg_match_min_confidence", slg_config.match_min_confidence, false);
       parser->parse_config("slg_enable_temporal_ransac", slg_config.enable_temporal_ransac, false);
       parser->parse_config("slg_temporal_ransac_min_matches", slg_config.temporal_ransac_min_matches, false);
@@ -523,6 +527,9 @@ struct VioManagerOptions {
       PRINT_DEBUG("  - slg use gpu: %d\n", slg_config.use_gpu);
       PRINT_DEBUG("  - slg max keypoints: %d\n", slg_config.max_keypoints);
       PRINT_DEBUG("  - slg detect min confidence: %.3f\n", slg_config.detect_min_confidence);
+      PRINT_DEBUG("  - slg detect mu1: %.3f\n", slg_config.detect_mu1);
+      PRINT_DEBUG("  - slg detect mu2: %.3f\n", slg_config.detect_mu2);
+      PRINT_DEBUG("  - slg detect clamp: [%.3f, %.3f]\n", slg_config.detect_clamp_min, slg_config.detect_clamp_max);
       PRINT_DEBUG("  - slg match min confidence: %.3f\n", slg_config.match_min_confidence);
       PRINT_DEBUG("  - slg temporal ransac: %d\n", slg_config.enable_temporal_ransac);
       PRINT_DEBUG("  - slg temporal ransac min matches: %d\n", slg_config.temporal_ransac_min_matches);

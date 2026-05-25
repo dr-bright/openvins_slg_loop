@@ -94,8 +94,12 @@ histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
 slg_superpoint_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint.onnx"
 slg_lightglue_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx"
 slg_use_gpu: true
-slg_max_keypoints: 400
+slg_max_keypoints: 300
 slg_detect_min_confidence: -1.0
+slg_detect_mu1: 0.1
+slg_detect_mu2: 0.1
+slg_detect_clamp_min: 0.001
+slg_detect_clamp_max: 0.95
 slg_match_min_confidence: -1.0
 slg_enable_temporal_ransac: true
 slg_temporal_ransac_min_matches: 20
