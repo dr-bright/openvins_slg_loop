@@ -4,8 +4,8 @@ verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
 
 use_fej: true # if first-estimate Jacobians should be used (enable for good consistency)
 integration: "rk4" # discrete, rk4, analytical (if rk4 or analytical used then analytical covariance propagation is used)
-use_stereo: true # if we have more than 1 camera, if we should try to track stereo constraints between pairs
-max_cameras: 2 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
+use_stereo: false # if we have more than 1 camera, if we should try to track stereo constraints between pairs
+max_cameras: 1 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
 
 calib_cam_extrinsics: true # if the transform between camera and IMU should be optimized R_ItoC, p_CinI
 calib_cam_intrinsics: true # if camera intrinsics should be optimized (focal, center, distortion)
@@ -17,7 +17,7 @@ max_clones: 8 # how many clones in the sliding window
 max_slam: 50 # number of features in our state vector
 max_slam_in_update: 25 # update can be split into sequential updates of batches, how many in a batch
 max_msckf_in_update: 30 # how many MSCKF features to use in the update
-slam_landmark_policy: "NONE" # NONE, KEEP_INACTIVE
+slam_landmark_policy: "SIMPLE" # NONE, KEEP_INACTIVE, SIMPLE
 dt_slam_delay: 1 # delay before initializing (helps with stability from bad initialization...)
 
 gravity_mag: 9.81 # magnitude of gravity in this location
@@ -79,7 +79,7 @@ filepath_gt: "/tmp/ov_groundtruth.txt"
 # our front-end feature tracking parameters
 # we have a KLT and descriptor based (KLT is better implemented...)
 use_klt: false # if true we will use KLT, otherwise use a ORB descriptor + robust matching
-num_pts: 700 # number of points (per camera) we will extract and try to track
+num_pts: 300 # number of points (per camera) we will extract and try to track
 fast_threshold: 10 # threshold for fast extraction (warning: lower threshs can be expensive)
 grid_x: 10 # extraction sub-grid count for horizontal direction (uniform tracking)
 grid_y: 10 # extraction sub-grid count for vertical direction (uniform tracking)
@@ -94,7 +94,7 @@ histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
 slg_superpoint_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint.onnx"
 slg_lightglue_onnx_path: "/root/catkin_ws/src/openvins_slg_slam/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx"
 slg_use_gpu: true
-slg_max_keypoints: 400
+slg_max_keypoints: 300
 slg_detect_min_confidence: 0.1
 slg_match_min_confidence: 0.65
 slg_enable_temporal_ransac: true

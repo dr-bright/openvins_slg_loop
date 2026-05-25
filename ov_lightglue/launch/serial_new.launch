@@ -37,17 +37,7 @@
     <arg name="slg_lightglue_onnx_path"  default="$(find ov_lightglue)/../onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx" />
 
     <!-- SLG runtime knobs -->
-    <arg name="slg_use_gpu" default="false" />
-    <arg name="slg_max_keypoints" default="1024" />
-    <arg name="slg_detect_min_confidence" default="-1.0" />
-    <arg name="slg_match_min_confidence" default="-1.0" />
-    <arg name="slg_enable_temporal_ransac" default="true" />
-    <arg name="slg_temporal_ransac_min_matches" default="20" />
-    <arg name="slg_temporal_ransac_min_inliers" default="12" />
-    <arg name="slg_temporal_ransac_threshold_px" default="2.0" />
-    <arg name="slg_temporal_ransac_confidence" default="0.99" />
-    <arg name="slg_min_feature_distance_px" default="10" />
-    <arg name="slg_refill_tracks" default="true" />
+    <arg name="slg_use_gpu" default="true" />
 
     <!-- MASTER NODE! -->
 <!--    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
@@ -65,10 +55,6 @@
         <param name="verbosity"                 type="str"    value="$(arg verbosity)" />
         <param name="config_path"               type="str"    value="$(arg config_path)" />
 
-        <!-- world/filter parameters -->
-        <param name="use_stereo"                type="bool"   value="$(arg use_stereo)" />
-        <param name="max_cameras"               type="int"    value="$(arg max_cameras)" />
-
         <!-- timing statistics recording -->
         <param name="record_timing_information" type="bool"   value="$(arg dotime)" />
         <param name="record_timing_filepath"    type="str"    value="$(arg path_time)" />
@@ -77,16 +63,6 @@
         <param name="slg_superpoint_onnx_path"      type="str"    value="$(arg slg_superpoint_onnx_path)" />
         <param name="slg_lightglue_onnx_path"       type="str"    value="$(arg slg_lightglue_onnx_path)" />
         <param name="slg_use_gpu"                   type="bool"   value="$(arg slg_use_gpu)" />
-        <param name="slg_max_keypoints"             type="int"    value="$(arg slg_max_keypoints)" />
-        <param name="slg_detect_min_confidence"     type="double" value="$(arg slg_detect_min_confidence)" />
-        <param name="slg_match_min_confidence"      type="double" value="$(arg slg_match_min_confidence)" />
-        <param name="slg_enable_temporal_ransac"    type="bool"   value="$(arg slg_enable_temporal_ransac)" />
-        <param name="slg_temporal_ransac_min_matches" type="int"  value="$(arg slg_temporal_ransac_min_matches)" />
-        <param name="slg_temporal_ransac_min_inliers" type="int"  value="$(arg slg_temporal_ransac_min_inliers)" />
-        <param name="slg_temporal_ransac_threshold_px" type="double" value="$(arg slg_temporal_ransac_threshold_px)" />
-        <param name="slg_temporal_ransac_confidence" type="double" value="$(arg slg_temporal_ransac_confidence)" />
-        <param name="slg_min_feature_distance_px"   type="int"    value="$(arg slg_min_feature_distance_px)" />
-        <param name="slg_refill_tracks"             type="bool"   value="$(arg slg_refill_tracks)" />
 
     </node>
 

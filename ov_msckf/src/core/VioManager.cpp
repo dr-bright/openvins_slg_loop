@@ -39,13 +39,326 @@
 #include "state/Propagator.h"
 #include "state/State.h"
 #include "state/StateHelper.h"
+#include "update/UpdaterHelper.h"
 #include "update/UpdaterMSCKF.h"
 #include "update/UpdaterSLAM.h"
 #include "update/UpdaterZeroVelocity.h"
 
+#include <algorithm>
+#include <cmath>
+#include <unordered_set>
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
+
+namespace {
+
+constexpr int REID_MIN_TRACK_GENERATION = 2;
+constexpr double REID_MIN_SAME_POINT_PROBABILITY = 0.80;
+constexpr double REID_COVARIANCE_FLOOR_M = 0.50;
+constexpr double REID_DIFFERENT_POINT_RADIUS_M = 5.0;
+
+int feature_measurement_count(const std::shared_ptr<Feature> &feat) {
+  int count = 0;
+  for (const auto &pair : feat->timestamps) {
+    count += (int)pair.second.size();
+  }
+  return count;
+}
+
+bool feature_has_current_measurement(const std::shared_ptr<Feature> &feat, const ov_core::CameraData &message) {
+  for (const auto &cam_id : message.sensor_ids) {
+    if (feat->timestamps.find(cam_id) == feat->timestamps.end()) {
+      continue;
+    }
+    for (const auto &timestamp : feat->timestamps.at(cam_id)) {
+      if (std::abs(timestamp - message.timestamp) < 1e-9) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+Eigen::Vector3d landmark_position_in_global(const std::shared_ptr<State> &state, const std::shared_ptr<Landmark> &landmark) {
+  Eigen::Vector3d p_FinG = landmark->get_xyz(false);
+  if (LandmarkRepresentation::is_relative_representation(landmark->_feat_representation)) {
+    assert(landmark->_anchor_cam_id != -1);
+    assert(landmark->_anchor_clone_timestamp != -1);
+    Eigen::Matrix3d R_ItoC = state->_calib_IMUtoCAM.at(landmark->_anchor_cam_id)->Rot();
+    Eigen::Vector3d p_IinC = state->_calib_IMUtoCAM.at(landmark->_anchor_cam_id)->pos();
+    Eigen::Matrix3d R_GtoI = state->_clones_IMU.at(landmark->_anchor_clone_timestamp)->Rot();
+    Eigen::Vector3d p_IinG = state->_clones_IMU.at(landmark->_anchor_clone_timestamp)->pos();
+    p_FinG = R_GtoI.transpose() * R_ItoC.transpose() * (landmark->get_xyz(false) - p_IinC) + p_IinG;
+  }
+  return p_FinG;
+}
+
+std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>>
+camera_clones_for_state(const std::shared_ptr<State> &state) {
+  std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>> clones_cam;
+  for (const auto &clone_calib : state->_calib_IMUtoCAM) {
+    std::unordered_map<double, FeatureInitializer::ClonePose> clones_cami;
+    for (const auto &clone_imu : state->_clones_IMU) {
+      Eigen::Matrix3d R_GtoCi = clone_calib.second->Rot() * clone_imu.second->Rot();
+      Eigen::Vector3d p_CioinG = clone_imu.second->pos() - R_GtoCi.transpose() * clone_calib.second->pos();
+      clones_cami.insert({clone_imu.first, FeatureInitializer::ClonePose(R_GtoCi, p_CioinG)});
+    }
+    clones_cam.insert({clone_calib.first, clones_cami});
+  }
+  return clones_cam;
+}
+
+bool invert_spd_3x3(const Eigen::Matrix3d &mat, Eigen::Matrix3d &inv) {
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(mat);
+  if (solver.info() != Eigen::Success || solver.eigenvalues().minCoeff() <= 1e-12) {
+    return false;
+  }
+  inv = solver.eigenvectors() * solver.eigenvalues().cwiseInverse().asDiagonal() * solver.eigenvectors().transpose();
+  return true;
+}
+
+bool candidate_spatial_hypothesis(const std::shared_ptr<State> &state, const VioManagerOptions &params,
+                                  std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>> &clones_cam,
+                                  const std::shared_ptr<Feature> &candidate, Eigen::Vector3d &p_FinG,
+                                  Eigen::Matrix3d &cov_FinG, int &anchor_cam_id) {
+  std::vector<double> clonetimes;
+  for (const auto &clone_imu : state->_clones_IMU) {
+    clonetimes.emplace_back(clone_imu.first);
+  }
+
+  auto feat = std::make_shared<Feature>(*candidate);
+  feat->clean_old_measurements(clonetimes);
+  if (feature_measurement_count(feat) < REID_MIN_TRACK_GENERATION) {
+    return false;
+  }
+
+  auto featinit_options = params.featinit_options;
+  FeatureInitializer initializer(featinit_options);
+  bool success_tri = initializer.config().triangulate_1d ? initializer.single_triangulation_1d(feat, clones_cam)
+                                                         : initializer.single_triangulation(feat, clones_cam);
+  if (!success_tri) {
+    return false;
+  }
+  bool success_refine = initializer.config().refine_features ? initializer.single_gaussnewton(feat, clones_cam) : true;
+  if (!success_refine) {
+    return false;
+  }
+
+  p_FinG = feat->p_FinG;
+  anchor_cam_id = feat->anchor_cam_id;
+
+  UpdaterHelper::UpdaterHelperFeature updater_feat;
+  updater_feat.featid = feat->featid;
+  updater_feat.uvs = feat->uvs;
+  updater_feat.uvs_norm = feat->uvs_norm;
+  updater_feat.timestamps = feat->timestamps;
+  updater_feat.feat_representation = LandmarkRepresentation::Representation::GLOBAL_3D;
+  updater_feat.p_FinG = feat->p_FinG;
+  updater_feat.p_FinG_fej = feat->p_FinG;
+
+  Eigen::MatrixXd H_f;
+  Eigen::MatrixXd H_x;
+  Eigen::VectorXd res;
+  std::vector<std::shared_ptr<Type>> Hx_order;
+  UpdaterHelper::get_feature_jacobian_full(state, updater_feat, H_f, H_x, res, Hx_order);
+  if (H_f.rows() < 3 || H_f.cols() != 3) {
+    return false;
+  }
+
+  Eigen::Matrix3d info = (1.0 / params.slam_options.sigma_pix_sq) * H_f.transpose() * H_f;
+  if (!invert_spd_3x3(info, cov_FinG)) {
+    cov_FinG = Eigen::Matrix3d::Identity();
+  }
+  cov_FinG = 0.5 * (cov_FinG + cov_FinG.transpose());
+  return true;
+}
+
+bool landmark_covariance_in_global(const std::shared_ptr<State> &state, const std::shared_ptr<Landmark> &landmark,
+                                   Eigen::Matrix3d &cov_FinG) {
+  UpdaterHelper::UpdaterHelperFeature feat;
+  feat.featid = landmark->_featid;
+  feat.feat_representation = landmark->_feat_representation;
+  if (LandmarkRepresentation::is_relative_representation(landmark->_feat_representation)) {
+    feat.anchor_cam_id = landmark->_anchor_cam_id;
+    feat.anchor_clone_timestamp = landmark->_anchor_clone_timestamp;
+    feat.p_FinA = landmark->get_xyz(false);
+    feat.p_FinA_fej = landmark->get_xyz(true);
+  } else {
+    feat.p_FinG = landmark->get_xyz(false);
+    feat.p_FinG_fej = landmark->get_xyz(true);
+  }
+
+  Eigen::MatrixXd H_f;
+  std::vector<Eigen::MatrixXd> H_x;
+  std::vector<std::shared_ptr<Type>> x_order;
+  UpdaterHelper::get_feature_jacobian_representation(state, feat, H_f, H_x, x_order);
+
+  std::vector<std::shared_ptr<Type>> cov_order = x_order;
+  cov_order.push_back(landmark);
+  Eigen::MatrixXd cov = StateHelper::get_marginal_covariance(state, cov_order);
+
+  int jac_cols = 0;
+  for (const auto &var : x_order) {
+    jac_cols += var->size();
+  }
+  jac_cols += landmark->size();
+
+  Eigen::MatrixXd J = Eigen::MatrixXd::Zero(3, jac_cols);
+  int col = 0;
+  for (size_t i = 0; i < x_order.size(); i++) {
+    J.block(0, col, 3, x_order.at(i)->size()) = H_x.at(i);
+    col += x_order.at(i)->size();
+  }
+  J.block(0, col, 3, landmark->size()) = H_f;
+
+  cov_FinG = J * cov * J.transpose();
+  cov_FinG = 0.5 * (cov_FinG + cov_FinG.transpose());
+  return cov_FinG.allFinite();
+}
+
+double same_point_probability(const Eigen::Vector3d &p_candidate, const Eigen::Matrix3d &cov_candidate,
+                              const Eigen::Vector3d &p_landmark, const Eigen::Matrix3d &cov_landmark) {
+  Eigen::Matrix3d S = cov_candidate + cov_landmark +
+                      REID_COVARIANCE_FLOOR_M * REID_COVARIANCE_FLOOR_M * Eigen::Matrix3d::Identity();
+  S = 0.5 * (S + S.transpose());
+
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(S);
+  if (solver.info() != Eigen::Success || solver.eigenvalues().minCoeff() <= 1e-12) {
+    return 0.0;
+  }
+
+  Eigen::Vector3d residual = p_candidate - p_landmark;
+  Eigen::Vector3d inv_weighted = solver.eigenvectors().transpose() * residual;
+  double d2 = (inv_weighted.array().square() / solver.eigenvalues().array()).sum();
+
+  const double pi = std::acos(-1.0);
+  double det = solver.eigenvalues().prod();
+  double gaussian_density = std::exp(-0.5 * d2) / std::sqrt(std::pow(2.0 * pi, 3) * det);
+  double uniform_volume = (4.0 / 3.0) * pi * std::pow(REID_DIFFERENT_POINT_RADIUS_M, 3);
+  double different_density = 1.0 / uniform_volume;
+  return gaussian_density / (gaussian_density + different_density);
+}
+
+size_t try_reidentify_inactive_slam_landmarks(const std::shared_ptr<State> &state, const VioManagerOptions &params,
+                                              const ov_core::CameraData &message,
+                                              std::vector<std::shared_ptr<Feature>> &feats_lost,
+                                              std::vector<std::shared_ptr<Feature>> &feats_marg,
+                                              std::vector<std::shared_ptr<Feature>> &feats_maxtracks,
+                                              const std::shared_ptr<FeatureDatabase> &database) {
+  if (state->_options.slam_landmark_policy != StateOptions::SlamLandmarkPolicy::SIMPLE || state->_options.max_slam_features <= 0) {
+    return 0;
+  }
+
+  struct CandidateInfo {
+    std::shared_ptr<Feature> feature;
+    Eigen::Vector3d p_FinG;
+    Eigen::Matrix3d cov_FinG;
+    int anchor_cam_id;
+  };
+  struct MatchInfo {
+    size_t landmark_id;
+    size_t candidate_id;
+    double probability;
+  };
+
+  std::unordered_map<size_t, CandidateInfo> candidates;
+  auto clones_cam = camera_clones_for_state(state);
+  auto data = database->get_internal_data();
+  for (const auto &pair : data) {
+    const auto &feature = pair.second;
+    if (feature == nullptr || feature->to_delete || state->_features_SLAM.find(feature->featid) != state->_features_SLAM.end()) {
+      continue;
+    }
+    if (feature_measurement_count(feature) < REID_MIN_TRACK_GENERATION || !feature_has_current_measurement(feature, message)) {
+      continue;
+    }
+    Eigen::Vector3d p_FinG;
+    Eigen::Matrix3d cov_FinG;
+    int anchor_cam_id = -1;
+    if (!candidate_spatial_hypothesis(state, params, clones_cam, feature, p_FinG, cov_FinG, anchor_cam_id)) {
+      continue;
+    }
+    candidates.insert({feature->featid, CandidateInfo{feature, p_FinG, cov_FinG, anchor_cam_id}});
+  }
+  if (candidates.empty()) {
+    return 0;
+  }
+
+  std::vector<MatchInfo> matches;
+  for (const auto &landmark_pair : state->_features_SLAM) {
+    const auto &landmark = landmark_pair.second;
+    if ((int)landmark->_featid <= 4 * state->_options.max_aruco_features || landmark->unobserved_count <= 0 || landmark->should_marg) {
+      continue;
+    }
+    Eigen::Matrix3d cov_landmark;
+    if (!landmark_covariance_in_global(state, landmark, cov_landmark)) {
+      continue;
+    }
+    Eigen::Vector3d p_landmark = landmark_position_in_global(state, landmark);
+    for (const auto &candidate_pair : candidates) {
+      double probability =
+          same_point_probability(candidate_pair.second.p_FinG, candidate_pair.second.cov_FinG, p_landmark, cov_landmark);
+      if (probability >= REID_MIN_SAME_POINT_PROBABILITY) {
+        matches.push_back({landmark->_featid, candidate_pair.first, probability});
+      }
+    }
+  }
+
+  std::sort(matches.begin(), matches.end(), [](const MatchInfo &a, const MatchInfo &b) { return a.probability > b.probability; });
+
+  std::unordered_set<size_t> used_landmarks;
+  std::unordered_set<size_t> used_candidates;
+  size_t resumed_count = 0;
+  for (const auto &match : matches) {
+    if (used_landmarks.find(match.landmark_id) != used_landmarks.end() ||
+        used_candidates.find(match.candidate_id) != used_candidates.end() ||
+        state->_features_SLAM.find(match.landmark_id) == state->_features_SLAM.end() ||
+        state->_features_SLAM.find(match.candidate_id) != state->_features_SLAM.end()) {
+      continue;
+    }
+
+    auto landmark = state->_features_SLAM.at(match.landmark_id);
+    auto candidate = candidates.at(match.candidate_id);
+    state->_features_SLAM.erase(match.landmark_id);
+    landmark->_featid = match.candidate_id;
+    landmark->_unique_camera_id = candidate.anchor_cam_id;
+    if (landmark->_unique_camera_id == -1 && !message.sensor_ids.empty()) {
+      landmark->_unique_camera_id = (int)message.sensor_ids.at(0);
+    }
+    landmark->unobserved_count = 0;
+    landmark->should_marg = false;
+    landmark->update_fail_count = 0;
+    state->_features_SLAM.insert({match.candidate_id, landmark});
+    used_landmarks.insert(match.landmark_id);
+    used_candidates.insert(match.candidate_id);
+    resumed_count++;
+    PRINT_DEBUG(YELLOW "[SLAM-REID]: rebound inactive landmark %zu to track %zu (p=%.3f)\n" RESET, match.landmark_id,
+                match.candidate_id, match.probability);
+  }
+
+  if (used_candidates.empty()) {
+    return 0;
+  }
+
+  auto remove_reidentified = [&used_candidates](std::vector<std::shared_ptr<Feature>> &features) {
+    auto it = features.begin();
+    while (it != features.end()) {
+      if (used_candidates.find((*it)->featid) != used_candidates.end()) {
+        it = features.erase(it);
+      } else {
+        it++;
+      }
+    }
+  };
+  remove_reidentified(feats_lost);
+  remove_reidentified(feats_marg);
+  remove_reidentified(feats_maxtracks);
+  return resumed_count;
+}
+
+} // namespace
 
 VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false), thread_init_success(false) {
 
@@ -442,6 +755,14 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     it0++;
   }
 
+  // If enabled, try to bind short current tracks to inactive in-state landmarks
+  // before normal SLAM promotion. This lets resumed tracks reuse existing landmarks.
+  size_t resumed_slam = 0;
+  if (state->_options.max_slam_features > 0 && message.timestamp - startup_time >= params.dt_slam_delay) {
+    resumed_slam = try_reidentify_inactive_slam_landmarks(state, params, message, feats_lost, feats_marg, feats_maxtracks,
+                                                          trackFEATS->get_feature_database());
+  }
+
   // If extended landmark lifetime is enabled, make room for new SLAM candidates
   // by evicting currently inactive visual landmarks first.
   if (state->_options.slam_landmark_policy != StateOptions::SlamLandmarkPolicy::NONE &&
@@ -752,5 +1073,18 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
                state->_calib_imu_tg->value()(4), state->_calib_imu_tg->value()(5), state->_calib_imu_tg->value()(6),
                state->_calib_imu_tg->value()(7), state->_calib_imu_tg->value()(8));
   }
-  PRINT_INFO(YELLOW "total of %zu SLAM features in state\n" RESET, state->_features_SLAM.size());
+  size_t active_slam = 0;
+  size_t inactive_slam = 0;
+  size_t aruco_slam = 0;
+  for (const auto &landmark : state->_features_SLAM) {
+    if ((int)landmark.second->_featid <= 4 * state->_options.max_aruco_features) {
+      aruco_slam++;
+    } else if (landmark.second->unobserved_count > 0) {
+      inactive_slam++;
+    } else {
+      active_slam++;
+    }
+  }
+  PRINT_INFO(YELLOW "SLAM features in state: active=%zu inactive=%zu aruco=%zu total=%zu resumed=%zu\n" RESET, active_slam,
+             inactive_slam, aruco_slam, state->_features_SLAM.size(), resumed_slam);
 }
