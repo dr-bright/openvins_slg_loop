@@ -39,6 +39,8 @@ namespace ov_core {
 class Feature {
 
 public:
+  virtual ~Feature() = default;
+
   /// Unique ID of this feature
   size_t featid;
 
