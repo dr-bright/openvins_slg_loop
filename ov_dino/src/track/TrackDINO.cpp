@@ -5,10 +5,12 @@
 #include "track/TrackDINO.h"
 
 #include "cam/CamBase.h"
+#include "track/FeatureDINO.h"
 #include "track/FeatureDatabaseDINO.h"
 #include "utils/print.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <limits>
 #include <map>
@@ -22,12 +24,16 @@
 namespace ov_dino {
 namespace {
 
-struct DinoTrackCandidate {
-  DinoDetection detection;
-  size_t class_id = 0;
-  size_t inclass_id = 0;
-  size_t feature_id = 0;
-};
+constexpr float DINO_MATCH_MAX_BOOTSTRAP_CENTER_DIST_PX = 140.0f;
+constexpr float DINO_MATCH_MAX_PREDICTED_CENTER_DIST_PX = 90.0f;
+constexpr float DINO_MATCH_CENTER_GATE_BBOX_DIAG_MULT = 1.5f;
+constexpr float DINO_MATCH_BOOTSTRAP_CENTER_GATE_BBOX_DIAG_MULT = 2.5f;
+constexpr float DINO_MATCH_MAX_SIZE_LOG_RATIO = 0.85f;
+constexpr float DINO_MATCH_BOOTSTRAP_MAX_SIZE_LOG_RATIO = 1.60f;
+constexpr float DINO_MATCH_CENTER_COST_WEIGHT = 1.0f;
+constexpr float DINO_MATCH_SIZE_COST_WEIGHT = 0.35f;
+constexpr float DINO_MATCH_IOU_COST_WEIGHT = 0.60f;
+constexpr float DINO_MATCH_ACCEPT_COST = 2.20f;
 
 std::string normalize_label(const std::string &label) {
   size_t first = 0;
@@ -102,42 +108,187 @@ bool allocate_dino_feature_id(size_t class_id, size_t class_count, std::set<size
   return false;
 }
 
-std::vector<DinoTrackCandidate> assign_detection_ids_stub(const std::vector<DinoDetection> &detections, const std::vector<std::string> &classes,
-                                                          const std::shared_ptr<ov_core::FeatureDatabase> &database) {
+cv::Point2f bbox_center(const cv::Rect2f &bbox) {
+  return cv::Point2f(bbox.x + 0.5f * bbox.width, bbox.y + 0.5f * bbox.height);
+}
+
+float rect_diag(const cv::Rect2f &bbox) {
+  return std::sqrt(bbox.width * bbox.width + bbox.height * bbox.height);
+}
+
+float point_dist(const cv::Point2f &a, const cv::Point2f &b) {
+  const cv::Point2f d = a - b;
+  return std::sqrt(d.x * d.x + d.y * d.y);
+}
+
+float bbox_iou(const cv::Rect2f &a, const cv::Rect2f &b) {
+  const float x0 = std::max(a.x, b.x);
+  const float y0 = std::max(a.y, b.y);
+  const float x1 = std::min(a.x + a.width, b.x + b.width);
+  const float y1 = std::min(a.y + a.height, b.y + b.height);
+  const float intersection = std::max(0.0f, x1 - x0) * std::max(0.0f, y1 - y0);
+  const float union_area = a.area() + b.area() - intersection;
+  return union_area > 1e-6f ? intersection / union_area : 0.0f;
+}
+
+float size_log_ratio(const cv::Rect2f &a, const cv::Rect2f &b) {
+  const float area_a = std::max(1.0f, a.area());
+  const float area_b = std::max(1.0f, b.area());
+  return std::abs(std::log(area_a / area_b));
+}
+
+} // namespace
+
+std::vector<TrackDINO::DinoTrackCandidate> TrackDINO::perform_matching_standalone(const std::vector<DinoDetection> &detections, size_t cam_id,
+                                                                                  double timestamp) const {
   std::vector<DinoTrackCandidate> candidates;
-  if (classes.empty()) {
+  if (config_.prompts.empty()) {
     return candidates;
   }
 
-  const size_t class_count = classes.size();
-  const std::map<std::string, size_t> class_lookup = build_class_lookup(classes);
+  struct TrackState {
+    size_t feature_id = 0;
+    size_t class_id = 0;
+    size_t inclass_id = 0;
+    cv::Rect2f last_bbox;
+    cv::Point2f predicted_center;
+    bool has_velocity = false;
+  };
+
+  struct MatchEdge {
+    size_t detection_index = 0;
+    size_t track_index = 0;
+    float cost = 0.0f;
+  };
+
+  const size_t class_count = config_.prompts.size();
+  const std::map<std::string, size_t> class_lookup = build_class_lookup(config_.prompts);
   std::set<size_t> used_feature_ids;
   std::map<size_t, std::set<size_t>> used_inclass_ids_by_class;
   collect_existing_ids(database, class_count, used_feature_ids, used_inclass_ids_by_class);
 
-  candidates.reserve(detections.size());
+  std::vector<DinoTrackCandidate> detection_candidates;
+  detection_candidates.reserve(detections.size());
   for (const DinoDetection &detection : detections) {
     const auto class_it = class_lookup.find(normalize_label(detection.label));
     if (class_it == class_lookup.end()) {
       PRINT_DEBUG("[DINO]: skipping detection with unknown class label '%s'\n", detection.label.c_str());
       continue;
     }
-
     DinoTrackCandidate candidate;
     candidate.detection = detection;
     candidate.class_id = class_it->second;
-    if (!allocate_dino_feature_id(candidate.class_id, class_count, used_feature_ids, used_inclass_ids_by_class, candidate.feature_id,
-                                  candidate.inclass_id)) {
-      PRINT_WARNING("[DINO]: failed to allocate feature id for class '%s'\n", detection.label.c_str());
+    detection_candidates.push_back(candidate);
+  }
+
+  std::vector<TrackState> tracks;
+  const auto features = database->get_internal_data();
+  tracks.reserve(features.size());
+  for (const auto &entry : features) {
+    const size_t feature_id = entry.first;
+    const size_t class_id = feature_id % class_count;
+    const std::shared_ptr<FeatureDINO> feature = std::dynamic_pointer_cast<FeatureDINO>(entry.second);
+    if (feature == nullptr || feature->dino_meta.count(cam_id) == 0 || feature->dino_meta.at(cam_id).empty() ||
+        feature->timestamps.count(cam_id) == 0 || feature->timestamps.at(cam_id).empty()) {
       continue;
     }
-    candidates.push_back(candidate);
+
+    const std::vector<FeatureDINOMeta> &meta = feature->dino_meta.at(cam_id);
+    const std::vector<double> &times = feature->timestamps.at(cam_id);
+    TrackState track;
+    track.feature_id = feature_id;
+    track.class_id = class_id;
+    track.inclass_id = feature_id / class_count;
+    track.last_bbox = meta.back().bbox;
+    track.predicted_center = bbox_center(track.last_bbox);
+
+    // After two stored bboxes we can estimate a constant-velocity center prediction.
+    // During bootstrap there is only one displacement sample missing, so velocity is
+    // deliberately ignored and the match relies on a looser center gate.
+    if (meta.size() >= 2 && times.size() >= 2 && timestamp > times.back() && times.back() > times[times.size() - 2]) {
+      const cv::Point2f last_center = bbox_center(meta.back().bbox);
+      const cv::Point2f prev_center = bbox_center(meta[meta.size() - 2].bbox);
+      const double dt_last = times.back() - times[times.size() - 2];
+      const double dt_next = timestamp - times.back();
+      const float scale = static_cast<float>(dt_next / dt_last);
+      track.predicted_center = last_center + (last_center - prev_center) * scale;
+      track.has_velocity = true;
+    }
+    tracks.push_back(track);
+  }
+
+  std::vector<MatchEdge> edges;
+  for (size_t det_idx = 0; det_idx < detection_candidates.size(); ++det_idx) {
+    const DinoTrackCandidate &det = detection_candidates.at(det_idx);
+    const cv::Rect2f &bbox = det.detection.bbox;
+    const cv::Point2f center = bbox_center(bbox);
+    for (size_t track_idx = 0; track_idx < tracks.size(); ++track_idx) {
+      const TrackState &track = tracks.at(track_idx);
+      if (track.class_id != det.class_id) {
+        continue;
+      }
+
+      const float center_dist = point_dist(center, track.predicted_center);
+      const float diag_gate = (track.has_velocity ? DINO_MATCH_CENTER_GATE_BBOX_DIAG_MULT : DINO_MATCH_BOOTSTRAP_CENTER_GATE_BBOX_DIAG_MULT) *
+                              std::max(rect_diag(bbox), rect_diag(track.last_bbox));
+      const float center_gate =
+          std::max(track.has_velocity ? DINO_MATCH_MAX_PREDICTED_CENTER_DIST_PX : DINO_MATCH_MAX_BOOTSTRAP_CENTER_DIST_PX, diag_gate);
+      if (center_dist > center_gate) {
+        continue;
+      }
+
+      // Size is useful after the object has a history, but the first two boxes do
+      // not yet define a size-change trend. Use a very loose bootstrap gate and a
+      // tighter gate once velocity/history exists.
+      const float size_cost = size_log_ratio(bbox, track.last_bbox);
+      const float size_gate = track.has_velocity ? DINO_MATCH_MAX_SIZE_LOG_RATIO : DINO_MATCH_BOOTSTRAP_MAX_SIZE_LOG_RATIO;
+      if (size_cost > size_gate) {
+        continue;
+      }
+
+      const float iou = bbox_iou(bbox, track.last_bbox);
+      const float normalized_center_cost = center_dist / std::max(1.0f, center_gate);
+      const float normalized_size_cost = size_cost / std::max(1e-3f, size_gate);
+      const float cost = DINO_MATCH_CENTER_COST_WEIGHT * normalized_center_cost + DINO_MATCH_SIZE_COST_WEIGHT * normalized_size_cost +
+                         DINO_MATCH_IOU_COST_WEIGHT * (1.0f - iou);
+      if (cost <= DINO_MATCH_ACCEPT_COST) {
+        edges.push_back({det_idx, track_idx, cost});
+      }
+    }
+  }
+
+  // Build a one-to-one assignment greedily from the best pair costs. This is
+  // intentionally simple for v1: DINO detections are sparse, and class gating
+  // plus motion/size gates remove most ambiguous pairings before this point.
+  std::sort(edges.begin(), edges.end(), [](const MatchEdge &a, const MatchEdge &b) { return a.cost < b.cost; });
+  std::vector<bool> detection_matched(detection_candidates.size(), false);
+  std::vector<bool> track_matched(tracks.size(), false);
+  for (const MatchEdge &edge : edges) {
+    if (detection_matched.at(edge.detection_index) || track_matched.at(edge.track_index)) {
+      continue;
+    }
+    DinoTrackCandidate matched = detection_candidates.at(edge.detection_index);
+    matched.feature_id = tracks.at(edge.track_index).feature_id;
+    matched.inclass_id = tracks.at(edge.track_index).inclass_id;
+    candidates.push_back(matched);
+    detection_matched.at(edge.detection_index) = true;
+    track_matched.at(edge.track_index) = true;
+  }
+
+  for (size_t i = 0; i < detection_candidates.size(); ++i) {
+    if (detection_matched.at(i)) {
+      continue;
+    }
+    DinoTrackCandidate fresh = detection_candidates.at(i);
+    if (!allocate_dino_feature_id(fresh.class_id, class_count, used_feature_ids, used_inclass_ids_by_class, fresh.feature_id, fresh.inclass_id)) {
+      PRINT_WARNING("[DINO]: failed to allocate feature id for class '%s'\n", fresh.detection.label.c_str());
+      continue;
+    }
+    candidates.push_back(fresh);
   }
 
   return candidates;
 }
-
-} // namespace
 
 TrackDINO::TrackDINO(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                      HistogramMethod histmethod, TrackDINOConfig config, std::shared_ptr<ov_core::TrackBase> primary_tracker)
@@ -185,7 +336,7 @@ void TrackDINO::feed_monocular(const ov_core::CameraData &message, size_t msg_id
 
   const cv::Mat img = preprocess_image(message.images.at(msg_id));
   const std::vector<DinoDetection> detections = backend_->run_dino(img, config_.prompts, config_.box_threshold, config_.text_threshold);
-  const std::vector<DinoTrackCandidate> candidates = assign_detection_ids_stub(detections, config_.prompts, database);
+  const std::vector<DinoTrackCandidate> candidates = perform_matching_standalone(detections, cam_id, message.timestamp);
   const std::shared_ptr<FeatureDatabaseDINO> dino_database = std::static_pointer_cast<FeatureDatabaseDINO>(database);
 
   std::vector<cv::KeyPoint> centers;

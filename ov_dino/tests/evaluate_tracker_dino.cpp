@@ -2,15 +2,11 @@
  * Rosbag to MP4 visualization tool.
  *
   rosrun ov_dino evaluate_tracker_dino \
-    IDEA-Research/grounding-dino-tiny \
-    /root/catkin_ws/src/openvins_slg_slam/ov_dino/src/dino_engine_server.py \
-    1 \
-    /data/gopro10/slow_fast/1440.bag \
-    /cam0/image_raw \
-    /data/gopro10/slow_fast/openvins_slg_slam/dino_eval.mp4 \
-    /data/gopro10/slow_fast/openvins_slg_slam/dino_metrics.csv \
-    128 \
-    "bright triangle. ceiling support pillar"
+    --bag /data/gopro10/slow_fast/1440.bag \
+    --save /data/gopro10/slow_fast/openvins_slg_slam/dino_eval.mp4 \
+    --csv /data/gopro10/slow_fast/openvins_slg_slam/dino_metrics.csv \
+    --prompt "bright triangle. ceiling support pillar" \
+    --fps 5
  */
 
 #include "cam/CamRadtan.h"
@@ -35,6 +31,7 @@
 #include <exception>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -46,6 +43,112 @@
 #include <opencv2/videoio.hpp>
 
 namespace {
+
+struct Args {
+  std::string model = "IDEA-Research/grounding-dino-tiny";
+  std::string engine = "/root/catkin_ws/src/openvins_slg_slam/ov_dino/src/dino_engine_server.py";
+  bool use_gpu = true;
+  std::string bag;
+  std::string topic = "/cam0/image_raw";
+  std::string save;
+  std::string csv;
+  size_t max_generation = 16;
+  std::string prompt = "bright triangle";
+  float box_threshold = 0.25f;
+  float text_threshold = 0.25f;
+  double start = 0.0;
+  double stop = 0.0;
+  double fps = 0.0;
+};
+
+void print_usage(const char *program) {
+  std::cerr << "Usage: " << program << " --bag BAG --save OUTPUT.mp4 [options]\n"
+            << "\nOptions:\n"
+            << "  --bag PATH             Required rosbag input.\n"
+            << "  --save PATH            Required output MP4 path.\n"
+            << "  --csv PATH             Optional metrics CSV path.\n"
+            << "  --topic TOPIC          Image topic. Default: /cam0/image_raw\n"
+            << "  --model NAME_OR_PATH   HF model. Default: IDEA-Research/grounding-dino-tiny\n"
+            << "  --engine PATH          Python engine. Default: ov_dino/src/dino_engine_server.py\n"
+            << "  --gpu 0|1              Use CUDA engine device. Default: 1\n"
+            << "  --prompt TEXT          Dot-separated DINO prompt/classes.\n"
+            << "  --box FLOAT            Box threshold. Default: 0.30\n"
+            << "  --text FLOAT           Text threshold. Default: 0.25\n"
+            << "  --P INT                Max generation bucket. Default: 16\n"
+            << "  --start SEC            Start time offset from first selected message. Default: 0\n"
+            << "  --stop SEC             Stop time offset from first selected message. Default: end\n"
+            << "  --fps FLOAT            Inference/output FPS. Default: infer from bag\n";
+}
+
+bool parse_bool_int(const std::string &value) {
+  return std::atoi(value.c_str()) != 0;
+}
+
+Args parse_args(int argc, char **argv) {
+  Args args;
+  for (int i = 1; i < argc; ++i) {
+    const std::string key = argv[i];
+    if (key == "--help" || key == "-h") {
+      print_usage(argv[0]);
+      std::exit(0);
+    }
+    if (key.empty() || key[0] != '-') {
+      throw std::runtime_error("unexpected positional argument: " + key);
+    }
+    if (i + 1 >= argc) {
+      throw std::runtime_error("missing value for " + key);
+    }
+    const std::string value = argv[++i];
+    if (key == "--bag") {
+      args.bag = value;
+    } else if (key == "--save") {
+      args.save = value;
+    } else if (key == "--csv") {
+      args.csv = value;
+    } else if (key == "--topic") {
+      args.topic = value;
+    } else if (key == "--model") {
+      args.model = value;
+    } else if (key == "--engine") {
+      args.engine = value;
+    } else if (key == "--gpu" || key == "--use-gpu") {
+      args.use_gpu = parse_bool_int(value);
+    } else if (key == "--prompt") {
+      args.prompt = value;
+    } else if (key == "--box" || key == "--box-threshold") {
+      args.box_threshold = std::atof(value.c_str());
+    } else if (key == "--text" || key == "--text-threshold") {
+      args.text_threshold = std::atof(value.c_str());
+    } else if (key == "--P" || key == "--max-generation") {
+      const int parsed = std::atoi(value.c_str());
+      if (parsed > 0) {
+        args.max_generation = static_cast<size_t>(parsed);
+      }
+    } else if (key == "--start") {
+      args.start = std::atof(value.c_str());
+    } else if (key == "--stop") {
+      args.stop = std::atof(value.c_str());
+    } else if (key == "--fps") {
+      args.fps = std::atof(value.c_str());
+    } else {
+      throw std::runtime_error("unknown argument: " + key);
+    }
+  }
+
+  if (args.bag.empty()) {
+    throw std::runtime_error("--bag is required");
+  }
+  if (args.save.empty()) {
+    throw std::runtime_error("--save is required");
+  }
+  if (args.stop > 0.0 && args.stop <= args.start) {
+    throw std::runtime_error("--stop must be greater than --start");
+  }
+  if (args.fps < 0.0) {
+    throw std::runtime_error("--fps must be non-negative");
+  }
+  return args;
+}
 
 cv::Mat decode_grayscale(const sensor_msgs::ImageConstPtr &msg) {
   if (!msg) {
@@ -193,6 +296,16 @@ double infer_fps_from_bag(rosbag::View &view) {
   return std::round(1.0 / median_dt);
 }
 
+ros::Time first_image_time(rosbag::View &view) {
+  for (const rosbag::MessageInstance &m : view) {
+    sensor_msgs::ImageConstPtr img_msg = m.instantiate<sensor_msgs::Image>();
+    if (img_msg) {
+      return img_msg->header.stamp;
+    }
+  }
+  return ros::Time();
+}
+
 std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, const std::string &model_path, const std::string &engine_path,
                                                    bool use_gpu, const std::vector<std::string> &classes, float box_threshold,
                                                    float text_threshold) {
@@ -221,70 +334,69 @@ std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, cons
 } // namespace
 
 int main(int argc, char **argv) {
-  const char *usage =
-      " <model> <engine.py> <use_gpu={0,1}> <bag> <image_topic> <output.mp4> <output.csv> [P=16] [prompt] [box=0.30] [text=0.25]";
-
-  if (argc < 8) {
-    std::cerr << "Usage: " << argv[0] << usage << std::endl;
+  Args args;
+  try {
+    args = parse_args(argc, argv);
+  } catch (const std::exception &e) {
+    std::cerr << "Argument error: " << e.what() << "\n";
+    print_usage(argv[0]);
     return 2;
   }
-
-  const std::string model_path = argv[1];
-  const std::string engine_path = argv[2];
-  const bool use_gpu = (std::atoi(argv[3]) != 0);
-  const std::string bag_path = argv[4];
-  const std::string topic = argv[5];
-  const std::string output_mp4 = argv[6];
-  const std::string output_csv = argv[7];
-  size_t max_generation = 16;
-  if (argc > 8) {
-    const int parsed = std::atoi(argv[8]);
-    if (parsed > 0) {
-      max_generation = static_cast<size_t>(parsed);
-    }
-  }
-  std::string prompt = "bright triangle. ceiling support pillar";
-  if (argc > 9) {
-    prompt = argv[9];
-  }
-  float box_threshold = 0.30f;
-  if (argc > 10) {
-    box_threshold = std::atof(argv[10]);
-  }
-  float text_threshold = 0.25f;
-  if (argc > 11) {
-    text_threshold = std::atof(argv[11]);
-  }
-  const std::vector<std::string> classes = split_classes(prompt);
+  const std::vector<std::string> classes = split_classes(args.prompt);
 
   try {
     std::cout << "DINO evaluator config:\n"
-              << "  model=" << model_path << "\n"
-              << "  engine=" << engine_path << "\n"
-              << "  use_gpu=" << use_gpu << "\n"
-              << "  bag=" << bag_path << "\n"
-              << "  topic=" << topic << "\n"
-              << "  output_mp4=" << output_mp4 << "\n"
-              << "  output_csv=" << output_csv << "\n"
-              << "  prompt=" << prompt << "\n"
-              << "  box_threshold=" << box_threshold << "\n"
-              << "  text_threshold=" << text_threshold << std::endl;
+              << "  model=" << args.model << "\n"
+              << "  engine=" << args.engine << "\n"
+              << "  use_gpu=" << args.use_gpu << "\n"
+              << "  bag=" << args.bag << "\n"
+              << "  topic=" << args.topic << "\n"
+              << "  save=" << args.save << "\n"
+              << "  csv=" << args.csv << "\n"
+              << "  P=" << args.max_generation << "\n"
+              << "  prompt=" << args.prompt << "\n"
+              << "  classes=" << classes.size() << "\n"
+              << "  box_threshold=" << args.box_threshold << "\n"
+              << "  text_threshold=" << args.text_threshold << "\n"
+              << "  start=" << args.start << "\n"
+              << "  stop=" << args.stop << "\n"
+              << "  fps=" << args.fps << std::endl;
+    for (size_t i = 0; i < classes.size(); ++i) {
+      std::cout << "    class[" << i << "]=" << classes.at(i) << std::endl;
+    }
 
     rosbag::Bag bag;
-    bag.open(bag_path, rosbag::bagmode::Read);
-    rosbag::View view(bag, rosbag::TopicQuery(topic));
+    bag.open(args.bag, rosbag::bagmode::Read);
+    rosbag::View full_view(bag, rosbag::TopicQuery(args.topic));
 
-    if (view.size() == 0) {
-      std::cerr << "No messages found for topic: " << topic << std::endl;
+    if (full_view.size() == 0) {
+      std::cerr << "No messages found for topic: " << args.topic << std::endl;
       return 3;
     }
 
-    double out_fps = infer_fps_from_bag(view);
+    const ros::Time first_time = first_image_time(full_view);
+    if (first_time.isZero()) {
+      std::cerr << "No decodable sensor_msgs/Image frames on topic: " << args.topic << std::endl;
+      return 3;
+    }
+
+    const ros::Time start_time = first_time + ros::Duration(args.start);
+    const ros::Time stop_time = args.stop > 0.0 ? first_time + ros::Duration(args.stop) : full_view.getEndTime();
+    rosbag::View view(bag, rosbag::TopicQuery(args.topic), start_time, stop_time);
+    if (view.size() == 0) {
+      std::cerr << "No messages found in requested slice for topic: " << args.topic << std::endl;
+      return 3;
+    }
+
+    double out_fps = args.fps;
+    if (out_fps <= 0.0) {
+      out_fps = infer_fps_from_bag(view);
+    }
     if (out_fps <= 0.0) {
       std::cerr << "Unable to infer FPS from rosbag timestamps." << std::endl;
       return 3;
     }
-    std::cout << "Inferred output fps=" << out_fps << std::endl;
+    std::cout << "Using output/inference fps=" << out_fps << std::endl;
 
     bool tracker_initialized = false;
     bool writer_initialized = false;
@@ -293,25 +405,35 @@ int main(int argc, char **argv) {
     std::unordered_map<size_t, cv::Point2f> prev_pts_by_id;
     std::deque<std::unordered_set<size_t>> id_history;
     cv::VideoWriter writer;
-    std::ofstream metrics(output_csv);
-    if (!metrics.is_open()) {
-      std::cerr << "Failed to open metrics csv: " << output_csv << std::endl;
-      return 4;
+    std::ofstream metrics;
+    if (!args.csv.empty()) {
+      metrics.open(args.csv);
+      if (!metrics.is_open()) {
+        std::cerr << "Failed to open metrics csv: " << args.csv << std::endl;
+        return 4;
+      }
+      metrics << "frame,timestamp";
+      for (size_t g = 0; g <= args.max_generation; ++g) {
+        metrics << ",gen" << g;
+      }
+      metrics << "\n";
     }
-    metrics << "frame,timestamp";
-    for (size_t g = 0; g <= max_generation; ++g) {
-      metrics << ",gen" << g;
-    }
-    metrics << "\n";
 
     size_t frame_idx = 0;
     size_t used_msgs = 0;
+    double next_process_time = -std::numeric_limits<double>::infinity();
+    const double process_dt = out_fps > 0.0 ? 1.0 / out_fps : 0.0;
 
     for (const rosbag::MessageInstance &m : view) {
       sensor_msgs::ImageConstPtr img_msg = m.instantiate<sensor_msgs::Image>();
       if (!img_msg) {
         continue;
       }
+      const double stamp = img_msg->header.stamp.toSec();
+      if (stamp + 1e-9 < next_process_time) {
+        continue;
+      }
+      next_process_time = stamp + process_dt;
 
       cv::Mat img_gray = decode_grayscale(img_msg);
       if (img_gray.empty()) {
@@ -319,21 +441,21 @@ int main(int argc, char **argv) {
       }
 
       if (!tracker_initialized) {
-        tracker = create_tracker(img_gray, model_path, engine_path, use_gpu, classes, box_threshold, text_threshold);
+        tracker = create_tracker(img_gray, args.model, args.engine, args.use_gpu, classes, args.box_threshold, args.text_threshold);
         tracker_initialized = true;
       }
 
       if (!writer_initialized) {
-        writer.open(output_mp4, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), out_fps, img_gray.size(), true);
+        writer.open(args.save, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), out_fps, img_gray.size(), true);
         if (!writer.isOpened()) {
-          std::cerr << "Failed to open output writer: " << output_mp4 << std::endl;
+          std::cerr << "Failed to open output writer: " << args.save << std::endl;
           return 4;
         }
         writer_initialized = true;
       }
 
       ov_core::CameraData data;
-      data.timestamp = img_msg->header.stamp.toSec();
+      data.timestamp = stamp;
       data.sensor_ids.push_back(0);
       data.images.push_back(img_gray);
       data.masks.push_back(cv::Mat::zeros(img_gray.rows, img_gray.cols, CV_8UC1));
@@ -352,9 +474,9 @@ int main(int argc, char **argv) {
 
       // at_least[g] = number of current features that are continuously present for >= g frames in the past.
       // Build this by chained intersections to prevent discontinuity overcounting if IDs are reused.
-      std::vector<size_t> at_least(max_generation + 1, 0);
+      std::vector<size_t> at_least(args.max_generation + 1, 0);
       std::unordered_set<size_t> alive_chain = curr_id_set;
-      for (size_t g = 1; g <= max_generation; ++g) {
+      for (size_t g = 1; g <= args.max_generation; ++g) {
         if (id_history.size() < g) {
           break;
         }
@@ -373,18 +495,20 @@ int main(int argc, char **argv) {
       // gen0 = newly appeared this frame.
       // genN (1..P-1) = exact lifetime N (non-overlapping bins).
       // genP = tail bucket for lifetime >= P.
-      std::vector<size_t> gen_counts(max_generation + 1, 0);
+      std::vector<size_t> gen_counts(args.max_generation + 1, 0);
       gen_counts[0] = curr_id_set.size() - at_least[1];
-      for (size_t g = 1; g < max_generation; ++g) {
+      for (size_t g = 1; g < args.max_generation; ++g) {
         gen_counts[g] = at_least[g] - at_least[g + 1];
       }
-      gen_counts[max_generation] = at_least[max_generation];
+      gen_counts[args.max_generation] = at_least[args.max_generation];
 
-      metrics << frame_idx << "," << data.timestamp;
-      for (size_t g = 0; g <= max_generation; ++g) {
-        metrics << "," << gen_counts[g];
+      if (metrics.is_open()) {
+        metrics << frame_idx << "," << data.timestamp;
+        for (size_t g = 0; g <= args.max_generation; ++g) {
+          metrics << "," << gen_counts[g];
+        }
+        metrics << "\n";
       }
-      metrics << "\n";
 
       cv::Mat frame_bgr;
       cv::cvtColor(img_gray, frame_bgr, cv::COLOR_GRAY2BGR);
@@ -399,7 +523,7 @@ int main(int argc, char **argv) {
       }
 
       id_history.push_back(std::move(curr_id_set));
-      if (id_history.size() > max_generation) {
+      if (id_history.size() > args.max_generation) {
         id_history.pop_front();
       }
 
@@ -411,15 +535,21 @@ int main(int argc, char **argv) {
     }
 
     if (used_msgs == 0) {
-      std::cerr << "No decodable sensor_msgs/Image frames on topic: " << topic << std::endl;
+      std::cerr << "No decodable sensor_msgs/Image frames on topic: " << args.topic << std::endl;
       return 3;
     }
 
     writer.release();
-    metrics.close();
+    if (metrics.is_open()) {
+      metrics.close();
+    }
     bag.close();
 
-    std::cout << "Done. frames_written=" << frame_idx << " output=" << output_mp4 << " metrics=" << output_csv << std::endl;
+    std::cout << "Done. frames_written=" << frame_idx << " output=" << args.save;
+    if (!args.csv.empty()) {
+      std::cout << " metrics=" << args.csv;
+    }
+    std::cout << std::endl;
   } catch (const std::exception &e) {
     std::cerr << "evaluate_tracker_dino failed: " << e.what() << std::endl;
     return 5;

@@ -27,9 +27,18 @@ public:
   std::unordered_map<size_t, std::vector<DinoDetection>> get_last_detections() const;
 
 protected:
+  struct DinoTrackCandidate {
+    DinoDetection detection;
+    size_t class_id = 0;
+    size_t inclass_id = 0;
+    size_t feature_id = 0;
+  };
+
   void feed_monocular(const ov_core::CameraData &message, size_t msg_id);
   cv::Mat preprocess_image(const cv::Mat &img) const;
   std::shared_ptr<ov_core::FeatureDatabase> primary_feature_database() const;
+  std::vector<DinoTrackCandidate> perform_matching_standalone(const std::vector<DinoDetection> &detections, size_t cam_id,
+                                                              double timestamp) const;
 
 protected:
   std::unique_ptr<dino_backend> backend_;
