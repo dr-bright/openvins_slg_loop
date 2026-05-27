@@ -38,6 +38,7 @@
 
     <!-- SLG runtime knobs -->
     <arg name="slg_use_gpu" default="true" />
+    <arg name="use_klt" default="true" />
 
     <!-- MASTER NODE! -->
 <!--    <node name="ov_msckf" pkg="ov_msckf" type="ros1_serial_msckf" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
@@ -63,6 +64,8 @@
         <param name="slg_superpoint_onnx_path"      type="str"    value="$(arg slg_superpoint_onnx_path)" />
         <param name="slg_lightglue_onnx_path"       type="str"    value="$(arg slg_lightglue_onnx_path)" />
         <param name="slg_use_gpu"                   type="bool"   value="$(arg slg_use_gpu)" />
+
+        <param name="use_klt"                       type="bool"   value="$(arg use_klt)" />
 
     </node>
 

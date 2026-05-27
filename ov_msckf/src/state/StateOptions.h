@@ -76,6 +76,10 @@ struct StateOptions {
   /// Max number of estimated SLAM features
   int max_slam_features = 25;
 
+  /// Minimum per-camera feature exposure count before trying SLAM promotion.
+  /// A value <= 0 preserves the legacy behavior of max_clone_size + 1.
+  int slam_min_feat_exposure = 0;
+
   /// Max number of SLAM features we allow to be included in a single EKF update.
   int max_slam_in_update = 1000;
 
@@ -127,6 +131,7 @@ struct StateOptions {
       // State parameters
       parser->parse_config("max_clones", max_clone_size);
       parser->parse_config("max_slam", max_slam_features);
+      parser->parse_config("slam_min_feat_exposure", slam_min_feat_exposure, false);
       parser->parse_config("max_slam_in_update", max_slam_in_update);
       parser->parse_config("max_msckf_in_update", max_msckf_in_update);
       parser->parse_config("num_aruco", max_aruco_features);
@@ -176,6 +181,7 @@ struct StateOptions {
     PRINT_DEBUG("  - imu_model: %d\n", imu_model);
     PRINT_DEBUG("  - max_clones: %d\n", max_clone_size);
     PRINT_DEBUG("  - max_slam: %d\n", max_slam_features);
+    PRINT_DEBUG("  - slam_min_feat_exposure: %d\n", slam_min_feat_exposure);
     PRINT_DEBUG("  - max_slam_in_update: %d\n", max_slam_in_update);
     PRINT_DEBUG("  - max_msckf_in_update: %d\n", max_msckf_in_update);
     PRINT_DEBUG("  - max_aruco: %d\n", max_aruco_features);

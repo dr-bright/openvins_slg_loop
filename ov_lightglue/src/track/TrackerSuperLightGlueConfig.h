@@ -22,8 +22,6 @@ struct TrackSuperLightGlueConfig {
   std::string superpoint_onnx_path;
   /// Absolute path to LightGlue ONNX model.
   std::string lightglue_onnx_path;
-  /// Hard cap applied after SuperPoint scoring to limit downstream cost.
-  int max_keypoints = 1024;
   /// Keep only keypoints with confidence >= this threshold.
   /// When < 0.0,   simple adaptive threshold is used, dynaic correction = 0.0
   /// When <= -1.0, full adaptive threshold is used, dynamic correction computed

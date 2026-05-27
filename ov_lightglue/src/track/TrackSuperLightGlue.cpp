@@ -28,18 +28,18 @@ TrackSuperLightGlue::TrackSuperLightGlue(std::unordered_map<size_t, std::shared_
     : TrackBase(std::move(cameras), numfeats, numaruco, stereo, histmethod), config_(std::move(config)) {
   initialize_models();
   if (config_.detect_min_confidence >= 0.0f) {
-    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+    PRINT_INFO("[SLG]: tracker created: num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
                "detect_mode=static threshold=%.3f\n",
-               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
+               num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
                config_.detect_min_confidence);
   } else if (config_.detect_min_confidence > -1.0f) {
-    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+    PRINT_INFO("[SLG]: tracker created: num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
                "detect_mode=simple_adaptive\n",
-               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac);
+               num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac);
   } else {
-    PRINT_INFO("[SLG]: tracker created: max_keypoints=%d num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
+    PRINT_INFO("[SLG]: tracker created: num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
                "detect_mode=full_adaptive mu1=%.3f mu2=%.3f clamp=[%.3f, %.3f]\n",
-               config_.max_keypoints, num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
+               num_features, config_.match_min_confidence, config_.refill_tracks, config_.enable_temporal_ransac,
                config_.detect_mu1, config_.detect_mu2, config_.detect_clamp_min, config_.detect_clamp_max);
   }
 }
@@ -172,7 +172,7 @@ void TrackSuperLightGlue::run_superpoint(size_t cam_id, const cv::Mat &img, std:
     desc.release();
     return;
   }
-  backend_->run_superpoint(img, kpts, desc, config_.max_keypoints, superpoint_min_confidence_arg(cam_id));
+  backend_->run_superpoint(img, kpts, desc, num_features, superpoint_min_confidence_arg(cam_id));
 }
 
 void TrackSuperLightGlue::run_lightglue(const cv::Size &size0, const std::vector<cv::KeyPoint> &kpts0, const cv::Mat &desc0,

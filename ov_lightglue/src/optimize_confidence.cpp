@@ -194,7 +194,6 @@ std::unique_ptr<TrackSuperLightGlueExposed> create_tracker(const cv::Size &size,
   cfg.superpoint_onnx_path = s.superpoint_onnx_path;
   cfg.lightglue_onnx_path = s.lightglue_onnx_path;
   cfg.use_gpu = s.use_gpu;
-  cfg.max_keypoints = s.target_active_features;
   cfg.detect_min_confidence = p.d;
   cfg.match_min_confidence = p.m;
 

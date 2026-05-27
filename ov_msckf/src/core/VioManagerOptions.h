@@ -490,7 +490,6 @@ struct VioManagerOptions {
       parser->parse_config("slg_superpoint_onnx_path", slg_config.superpoint_onnx_path, false);
       parser->parse_config("slg_lightglue_onnx_path", slg_config.lightglue_onnx_path, false);
       parser->parse_config("slg_use_gpu", slg_config.use_gpu, false);
-      parser->parse_config("slg_max_keypoints", slg_config.max_keypoints, false);
       parser->parse_config("slg_detect_min_confidence", slg_config.detect_min_confidence, false);
       parser->parse_config("slg_detect_mu1", slg_config.detect_mu1, false);
       parser->parse_config("slg_detect_mu2", slg_config.detect_mu2, false);
@@ -525,7 +524,6 @@ struct VioManagerOptions {
       PRINT_DEBUG("  - slg superpoint model: %s\n", slg_config.superpoint_onnx_path.c_str());
       PRINT_DEBUG("  - slg lightglue model: %s\n", slg_config.lightglue_onnx_path.c_str());
       PRINT_DEBUG("  - slg use gpu: %d\n", slg_config.use_gpu);
-      PRINT_DEBUG("  - slg max keypoints: %d\n", slg_config.max_keypoints);
       PRINT_DEBUG("  - slg detect min confidence: %.3f\n", slg_config.detect_min_confidence);
       PRINT_DEBUG("  - slg detect mu1: %.3f\n", slg_config.detect_mu1);
       PRINT_DEBUG("  - slg detect mu2: %.3f\n", slg_config.detect_mu2);
