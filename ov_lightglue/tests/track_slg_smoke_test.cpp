@@ -203,7 +203,6 @@ int main(int argc, char **argv) {
     cfg.superpoint_onnx_path = superpoint_onnx_path;
     cfg.lightglue_onnx_path = lightglue_onnx_path;
     cfg.use_gpu = use_gpu;
-    cfg.max_keypoints = 1024;
     cfg.detect_min_confidence = -1.0f;
     cfg.match_min_confidence = -1.0f;
     cfg.enable_temporal_ransac = true;

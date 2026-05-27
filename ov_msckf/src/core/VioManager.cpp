@@ -725,24 +725,42 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     }
   }
 
-  // Find tracks that have reached max length, these can be made into SLAM features
+  // Find tracks mature enough to be made into SLAM features.
+  //
+  // Legacy OpenVINS tied this to max_clone_size because only features at the
+  // marginalization timestep were considered, and the condition was
+  // track_length > max_clone_size. A SLAM feature does not actually need to
+  // populate every clone: delayed_init() cleans measurements to existing clone
+  // timestamps and builds the linear system only from the clones where the
+  // feature was observed. Thus maturity can be decoupled from clone-window size.
   std::vector<std::shared_ptr<Feature>> feats_maxtracks;
-  auto it2 = feats_marg.begin();
-  while (it2 != feats_marg.end()) {
-    // See if any of our camera's reached max track
-    bool reached_max = false;
-    for (const auto &cams : (*it2)->timestamps) {
-      if ((int)cams.second.size() > state->_options.max_clone_size) {
-        reached_max = true;
-        break;
+  int slam_min_exposure =
+      state->_options.slam_min_feat_exposure > 0 ? state->_options.slam_min_feat_exposure : state->_options.max_clone_size + 1;
+  auto feature_meets_slam_exposure = [&](const std::shared_ptr<Feature> &feat) {
+    for (const auto &cams : feat->timestamps) {
+      if ((int)cams.second.size() >= slam_min_exposure) {
+        return true;
       }
     }
-    // If max track, then add it to our possible slam feature list
-    if (reached_max) {
-      feats_maxtracks.push_back(*it2);
-      it2 = feats_marg.erase(it2);
-    } else {
-      it2++;
+    return false;
+  };
+  auto erase_selected_candidate = [&](std::vector<std::shared_ptr<Feature>> &features, const std::shared_ptr<Feature> &selected) {
+    features.erase(std::remove_if(features.begin(), features.end(),
+                                  [&](const std::shared_ptr<Feature> &feat) { return feat->featid == selected->featid; }),
+                   features.end());
+  };
+  for (const auto &feat_pair : trackFEATS->get_feature_database()->get_internal_data()) {
+    const std::shared_ptr<Feature> &feat = feat_pair.second;
+    if (feat == nullptr || feat->to_delete) {
+      continue;
+    }
+    if (state->_features_SLAM.find(feat->featid) != state->_features_SLAM.end()) {
+      continue;
+    }
+    if (feature_meets_slam_exposure(feat)) {
+      feats_maxtracks.push_back(feat);
+      erase_selected_candidate(feats_lost, feat);
+      erase_selected_candidate(feats_marg, feat);
     }
   }
 
