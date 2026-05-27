@@ -837,14 +837,15 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
         feats_slam.push_back(feat1);
     }
     std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
-    if (feat2 != nullptr) {
+    bool has_active_feat2 = (feat2 != nullptr && !feat2->to_delete);
+    if (has_active_feat2) {
       feats_slam.push_back(feat2);
       landmark.second->unobserved_count = 0;
     }
     assert(landmark.second->_unique_camera_id != -1);
     bool current_unique_cam =
         std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
-    if (feat2 == nullptr && current_unique_cam) {
+    if (!has_active_feat2 && current_unique_cam) {
       if (state->_options.slam_landmark_policy == StateOptions::SlamLandmarkPolicy::NONE) {
         landmark.second->should_marg = true;
       } else if ((int)landmark.second->_featid > 4 * state->_options.max_aruco_features) {
@@ -956,7 +957,13 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // Remove features that where used for the update from our extractors at the last timestep
   // This allows for measurements to be used in the future if they failed to be used this time
   // Note we need to do this before we feed a new image, as we want all new measurements to NOT be deleted
-  trackFEATS->get_feature_database()->cleanup();
+  std::unordered_set<size_t> protected_slam_feature_ids;
+  for (const auto &landmark : state->_features_SLAM) {
+    if ((int)landmark.second->_featid > 4 * state->_options.max_aruco_features) {
+      protected_slam_feature_ids.insert(landmark.second->_featid);
+    }
+  }
+  trackFEATS->get_feature_database()->cleanup(protected_slam_feature_ids);
   if (trackARUCO != nullptr) {
     trackARUCO->get_feature_database()->cleanup();
   }
@@ -966,7 +973,7 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
 
   // Cleanup any features older than the marginalization time
   if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
-    trackFEATS->get_feature_database()->cleanup_measurements(state->margtimestep());
+    trackFEATS->get_feature_database()->cleanup_measurements(state->margtimestep(), protected_slam_feature_ids);
     if (trackARUCO != nullptr) {
       trackARUCO->get_feature_database()->cleanup_measurements(state->margtimestep());
     }
