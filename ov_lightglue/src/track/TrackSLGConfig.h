@@ -1,22 +1,22 @@
 /*
- * openvins_lightglue: SuperPoint + LightGlue tracking extension for OpenVINS
+ * openvins_lightglue: SLG tracking extension for OpenVINS
  */
 
-#ifndef OV_LIGHTGLUE_TRACK_TRACKER_SUPER_LIGHTGLUE_CONFIG_H
-#define OV_LIGHTGLUE_TRACK_TRACKER_SUPER_LIGHTGLUE_CONFIG_H
+#ifndef OV_LIGHTGLUE_TRACK_TRACKER_SLG_CONFIG_H
+#define OV_LIGHTGLUE_TRACK_TRACKER_SLG_CONFIG_H
 
 #include <string>
 
 namespace ov_lightglue {
 
 /**
- * @brief Runtime configuration for TrackSuperLightGlue.
+ * @brief Runtime configuration for TrackSLG.
  *
  * This struct is owned by tracker-level code and can later be populated from ROS params,
  * YAML, or other external config sources.
  */
-struct TrackSuperLightGlueConfig {
-  TrackSuperLightGlueConfig();
+struct TrackSLGConfig {
+  TrackSLGConfig();
 
   /// Absolute path to SuperPoint ONNX model.
   std::string superpoint_onnx_path;
@@ -56,4 +56,4 @@ struct TrackSuperLightGlueConfig {
 
 } // namespace ov_lightglue
 
-#endif // OV_LIGHTGLUE_TRACK_TRACKER_SUPER_LIGHTGLUE_CONFIG_H
+#endif // OV_LIGHTGLUE_TRACK_TRACKER_SLG_CONFIG_H

@@ -27,7 +27,7 @@
 #include "utils/sensor_data.h"
 
 #if defined(OVLG_TRACKER_SLG)
-#include "track/TrackSuperLightGlue.h"
+#include "track/TrackSLG.h"
 #elif defined(OVLG_TRACKER_KLT)
 #include "track/TrackKLT.h"
 #else
@@ -152,7 +152,7 @@ std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, cons
   cameras.insert({0, cam});
 
 #if defined(OVLG_TRACKER_SLG)
-  ov_lightglue::TrackSuperLightGlueConfig cfg;
+  ov_lightglue::TrackSLGConfig cfg;
   cfg.superpoint_onnx_path = superpoint_onnx_path;
   cfg.lightglue_onnx_path = lightglue_onnx_path;
   cfg.use_gpu = use_gpu;
@@ -160,7 +160,7 @@ std::unique_ptr<ov_core::TrackBase> create_tracker(const cv::Mat &img_gray, cons
   cfg.match_min_confidence = -1.0f;
 
   return std::unique_ptr<ov_core::TrackBase>(
-      new ov_lightglue::TrackSuperLightGlue(cameras, 300, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg));
+      new ov_lightglue::TrackSLG(cameras, 300, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg));
 #else
   (void)superpoint_onnx_path;
   (void)lightglue_onnx_path;

@@ -1,10 +1,10 @@
 /*
- * openvins_lightglue: SuperPoint + LightGlue tracking extension for OpenVINS
+ * openvins_lightglue: SLG tracking extension for OpenVINS
  *
  * Author: drbright <gkigki111@gmail.com>
  */
 
-#include "track/TrackSuperLightGlue.h"
+#include "track/TrackSLG.h"
 #include "track/slg_backend.h"
 
 #include "cam/CamBase.h"
@@ -23,8 +23,8 @@
 
 namespace ov_lightglue {
 
-TrackSuperLightGlue::TrackSuperLightGlue(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco,
-                                         bool stereo, HistogramMethod histmethod, TrackSuperLightGlueConfig config)
+TrackSLG::TrackSLG(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco, bool stereo,
+                   HistogramMethod histmethod, TrackSLGConfig config)
     : TrackBase(std::move(cameras), numfeats, numaruco, stereo, histmethod), config_(std::move(config)) {
   initialize_models();
   if (config_.detect_min_confidence >= 0.0f) {
@@ -44,11 +44,11 @@ TrackSuperLightGlue::TrackSuperLightGlue(std::unordered_map<size_t, std::shared_
   }
 }
 
-TrackSuperLightGlue::~TrackSuperLightGlue() = default;
+TrackSLG::~TrackSLG() = default;
 
-void TrackSuperLightGlue::feed_new_camera(const ov_core::CameraData &message) {
+void TrackSLG::feed_new_camera(const ov_core::CameraData &message) {
   if (message.sensor_ids.empty() || message.sensor_ids.size() != message.images.size() || message.images.size() != message.masks.size()) {
-    throw std::runtime_error("TrackSuperLightGlue: CameraData sizes do not match");
+    throw std::runtime_error("TrackSLG: CameraData sizes do not match");
   }
 
   if (message.images.size() == 2 && use_stereo) {
@@ -61,7 +61,7 @@ void TrackSuperLightGlue::feed_new_camera(const ov_core::CameraData &message) {
   }
 }
 
-void TrackSuperLightGlue::feed_monocular(const ov_core::CameraData &message, size_t msg_id) {
+void TrackSLG::feed_monocular(const ov_core::CameraData &message, size_t msg_id) {
   if (msg_id >= message.images.size() || msg_id >= message.sensor_ids.size() || msg_id >= message.masks.size()) {
     return;
   }
@@ -157,16 +157,16 @@ void TrackSuperLightGlue::feed_monocular(const ov_core::CameraData &message, siz
   }
 }
 
-void TrackSuperLightGlue::feed_stereo(const ov_core::CameraData &message, size_t msg_id_left, size_t msg_id_right) {
+void TrackSLG::feed_stereo(const ov_core::CameraData &message, size_t msg_id_left, size_t msg_id_right) {
   feed_monocular(message, msg_id_left);
   feed_monocular(message, msg_id_right);
 }
 
-void TrackSuperLightGlue::initialize_models() {
+void TrackSLG::initialize_models() {
   backend_.reset(new slg_backend(config_.superpoint_onnx_path, config_.lightglue_onnx_path, config_.use_gpu));
 }
 
-void TrackSuperLightGlue::run_superpoint(size_t cam_id, const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc) {
+void TrackSLG::run_superpoint(size_t cam_id, const cv::Mat &img, std::vector<cv::KeyPoint> &kpts, cv::Mat &desc) {
   if (img.empty()) {
     kpts.clear();
     desc.release();
@@ -175,13 +175,13 @@ void TrackSuperLightGlue::run_superpoint(size_t cam_id, const cv::Mat &img, std:
   backend_->run_superpoint(img, kpts, desc, num_features, superpoint_min_confidence_arg(cam_id));
 }
 
-void TrackSuperLightGlue::run_lightglue(const cv::Size &size0, const std::vector<cv::KeyPoint> &kpts0, const cv::Mat &desc0,
+void TrackSLG::run_lightglue(const cv::Size &size0, const std::vector<cv::KeyPoint> &kpts0, const cv::Mat &desc0,
                                         const cv::Size &size1, const std::vector<cv::KeyPoint> &kpts1, const cv::Mat &desc1,
                                         std::vector<cv::DMatch> &matches, bool keypoints_normalized) {
   backend_->run_lightglue(size0, kpts0, desc0, size1, kpts1, desc1, matches, config_.match_min_confidence, keypoints_normalized);
 }
 
-void TrackSuperLightGlue::update_feature_database(double timestamp, size_t cam_id, const std::vector<cv::KeyPoint> &kpts,
+void TrackSLG::update_feature_database(double timestamp, size_t cam_id, const std::vector<cv::KeyPoint> &kpts,
                                                   const std::vector<size_t> &ids) {
   if (kpts.size() != ids.size()) {
     return;
@@ -194,7 +194,7 @@ void TrackSuperLightGlue::update_feature_database(double timestamp, size_t cam_i
   }
 }
 
-cv::Mat TrackSuperLightGlue::preprocess_image(const cv::Mat &img) const {
+cv::Mat TrackSLG::preprocess_image(const cv::Mat &img) const {
   if (img.empty()) {
     return img;
   }
@@ -216,7 +216,7 @@ cv::Mat TrackSuperLightGlue::preprocess_image(const cv::Mat &img) const {
   return out;
 }
 
-std::vector<cv::DMatch> TrackSuperLightGlue::filter_temporal_matches(const std::vector<cv::DMatch> &raw_matches,
+std::vector<cv::DMatch> TrackSLG::filter_temporal_matches(const std::vector<cv::DMatch> &raw_matches,
                                                                       const std::vector<cv::KeyPoint> &prev_kpts,
                                                                       const std::vector<cv::KeyPoint> &curr_kpts,
                                                                       const cv::Size &image_size,
@@ -249,7 +249,7 @@ std::vector<cv::DMatch> TrackSuperLightGlue::filter_temporal_matches(const std::
   return filtered;
 }
 
-std::vector<cv::DMatch> TrackSuperLightGlue::apply_temporal_ransac(const std::vector<cv::DMatch> &matches,
+std::vector<cv::DMatch> TrackSLG::apply_temporal_ransac(const std::vector<cv::DMatch> &matches,
                                                                     const std::vector<cv::KeyPoint> &prev_kpts,
                                                                     const std::vector<cv::KeyPoint> &curr_kpts) const {
   if (!config_.enable_temporal_ransac || static_cast<int>(matches.size()) < config_.temporal_ransac_min_matches) {
@@ -286,7 +286,7 @@ std::vector<cv::DMatch> TrackSuperLightGlue::apply_temporal_ransac(const std::ve
   return inliers;
 }
 
-bool TrackSuperLightGlue::is_keypoint_usable(const cv::KeyPoint &kp, const cv::Size &image_size, const cv::Mat &mask) const {
+bool TrackSLG::is_keypoint_usable(const cv::KeyPoint &kp, const cv::Size &image_size, const cv::Mat &mask) const {
   const int x = static_cast<int>(std::round(kp.pt.x));
   const int y = static_cast<int>(std::round(kp.pt.y));
   if (x < 0 || y < 0 || x >= image_size.width || y >= image_size.height) {
@@ -298,7 +298,7 @@ bool TrackSuperLightGlue::is_keypoint_usable(const cv::KeyPoint &kp, const cv::S
   return static_cast<int>(mask.at<uint8_t>(y, x)) <= 127;
 }
 
-bool TrackSuperLightGlue::passes_spatial_filter(const cv::KeyPoint &kp, const std::vector<cv::KeyPoint> &accepted) const {
+bool TrackSLG::passes_spatial_filter(const cv::KeyPoint &kp, const std::vector<cv::KeyPoint> &accepted) const {
   const float min_dist = static_cast<float>(std::max(0, config_.min_feature_distance_px));
   if (min_dist <= 0.0f) {
     return true;
@@ -314,7 +314,7 @@ bool TrackSuperLightGlue::passes_spatial_filter(const cv::KeyPoint &kp, const st
   return true;
 }
 
-std::vector<cv::KeyPoint> TrackSuperLightGlue::undistort_keypoints(size_t cam_id, const std::vector<cv::KeyPoint> &kpts) const {
+std::vector<cv::KeyPoint> TrackSLG::undistort_keypoints(size_t cam_id, const std::vector<cv::KeyPoint> &kpts) const {
   std::vector<cv::KeyPoint> out;
   out.reserve(kpts.size());
   for (const cv::KeyPoint &kp : kpts) {
@@ -326,14 +326,14 @@ std::vector<cv::KeyPoint> TrackSuperLightGlue::undistort_keypoints(size_t cam_id
   return out;
 }
 
-void TrackSuperLightGlue::append_descriptor_row(const cv::Mat &source_desc, int row_idx, cv::Mat &out_desc) {
+void TrackSLG::append_descriptor_row(const cv::Mat &source_desc, int row_idx, cv::Mat &out_desc) {
   if (row_idx < 0 || row_idx >= source_desc.rows) {
     return;
   }
   out_desc.push_back(source_desc.row(row_idx));
 }
 
-float TrackSuperLightGlue::superpoint_min_confidence_arg(size_t cam_id) const {
+float TrackSLG::superpoint_min_confidence_arg(size_t cam_id) const {
   if (config_.detect_min_confidence >= 0.0f) {
     return config_.detect_min_confidence;
   }

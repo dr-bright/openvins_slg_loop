@@ -27,7 +27,7 @@
 #include "track/TrackAruco.h"
 #include "track/TrackKLT.h"
 #include "track/TrackSIM.h"
-#include "track/TrackSuperLightGlue.h"
+#include "track/TrackSLG.h"
 #include "types/Landmark.h"
 #include "types/LandmarkRepresentation.h"
 #include "utils/opencv_lambda_body.h"
@@ -452,7 +452,7 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
       PRINT_ERROR(RED "please set slg_superpoint_onnx_path and slg_lightglue_onnx_path\n" RESET);
       std::exit(EXIT_FAILURE);
     }
-    trackFEATS = std::shared_ptr<TrackBase>(new ov_lightglue::TrackSuperLightGlue(
+    trackFEATS = std::shared_ptr<TrackBase>(new ov_lightglue::TrackSLG(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
         params.slg_config));
   }

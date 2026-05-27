@@ -1,17 +1,17 @@
 /*
- * openvins_lightglue: SuperPoint + LightGlue tracking extension for OpenVINS
+ * openvins_lightglue: SLG tracking extension for OpenVINS
  *
  * Author: drbright <gkigki111@gmail.com>
  */
 
-#ifndef OV_LIGHTGLUE_TRACK_SUPER_LIGHTGLUE_H
-#define OV_LIGHTGLUE_TRACK_SUPER_LIGHTGLUE_H
+#ifndef OV_LIGHTGLUE_TRACK_SLG_H
+#define OV_LIGHTGLUE_TRACK_SLG_H
 
 #include <memory>
 #include <unordered_map>
 
 #include "track/TrackBase.h"
-#include "track/TrackerSuperLightGlueConfig.h"
+#include "track/TrackSLGConfig.h"
 
 namespace ov_lightglue {
 
@@ -23,7 +23,7 @@ class slg_backend;
  * This class follows the OpenVINS TrackBase contract and is intended to be
  * integrated in VioManager similarly to TrackKLT / TrackDescriptor / TrackPlane.
  */
-class TrackSuperLightGlue : public ov_core::TrackBase {
+class TrackSLG : public ov_core::TrackBase {
 public:
   /**
    * @brief Constructor with base tracker options.
@@ -31,10 +31,10 @@ public:
    * This stores tracker policy parameters and initializes backend sessions once so
    * per-frame processing can focus on feature tracking instead of model setup.
    */
-  explicit TrackSuperLightGlue(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco,
-                               bool stereo, HistogramMethod histmethod, TrackSuperLightGlueConfig config);
+  explicit TrackSLG(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco, bool stereo,
+                    HistogramMethod histmethod, TrackSLGConfig config);
 
-  ~TrackSuperLightGlue() override;
+  ~TrackSLG() override;
 
   /**
    * @brief Process new camera measurements.
@@ -166,10 +166,10 @@ protected:
 
 protected:
   std::unique_ptr<slg_backend> backend_;
-  TrackSuperLightGlueConfig config_;
+  TrackSLGConfig config_;
   std::unordered_map<size_t, cv::Mat> desc_last_;
 };
 
 } // namespace ov_lightglue
 
-#endif // OV_LIGHTGLUE_TRACK_SUPER_LIGHTGLUE_H
+#endif // OV_LIGHTGLUE_TRACK_SLG_H
