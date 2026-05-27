@@ -63,6 +63,12 @@ void FeatureDatabase::update_feature(size_t id, double timestamp, size_t cam_id,
   if (features_idlookup.find(id) != features_idlookup.end()) {
     // Get our feature
     std::shared_ptr<Feature> feat = features_idlookup.at(id);
+    if (feat->to_delete) {
+      feat->uvs.clear();
+      feat->uvs_norm.clear();
+      feat->timestamps.clear();
+      feat->to_delete = false;
+    }
     // Append this new information to it!
     feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
     feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
@@ -209,10 +215,18 @@ std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing(doubl
 }
 
 void FeatureDatabase::cleanup() {
+  cleanup({});
+}
+
+void FeatureDatabase::cleanup(const std::unordered_set<size_t> &protected_ids) {
   // Loop through all features
   // int sizebefore = (int)features_idlookup.size();
   std::lock_guard<std::mutex> lck(mtx);
   for (auto it = features_idlookup.begin(); it != features_idlookup.end();) {
+    if (protected_ids.find((*it).first) != protected_ids.end()) {
+      it++;
+      continue;
+    }
     // If delete flag is set, then delete it
     if ((*it).second->to_delete) {
       features_idlookup.erase(it++);
@@ -224,8 +238,16 @@ void FeatureDatabase::cleanup() {
 }
 
 void FeatureDatabase::cleanup_measurements(double timestamp) {
+  cleanup_measurements(timestamp, {});
+}
+
+void FeatureDatabase::cleanup_measurements(double timestamp, const std::unordered_set<size_t> &protected_ids) {
   std::lock_guard<std::mutex> lck(mtx);
   for (auto it = features_idlookup.begin(); it != features_idlookup.end();) {
+    if (protected_ids.find((*it).first) != protected_ids.end()) {
+      it++;
+      continue;
+    }
     // Remove the older measurements
     (*it).second->clean_older_measurements(timestamp);
     // Count how many measurements

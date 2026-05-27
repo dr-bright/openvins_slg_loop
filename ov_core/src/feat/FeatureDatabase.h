@@ -26,6 +26,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ov_core {
@@ -123,9 +124,23 @@ public:
   void cleanup();
 
   /**
+   * @brief Delete used features while retaining protected IDs for later track capture.
+   *
+   * Protected features keep their to_delete flag so they will not be reused by update
+   * selection. If a new observation arrives for a protected deleted feature,
+   * update_feature() starts a fresh active measurement batch.
+   */
+  void cleanup(const std::unordered_set<size_t> &protected_ids);
+
+  /**
    * @brief This function will delete all feature measurements that are older then the specified timestamp
    */
   void cleanup_measurements(double timestamp);
+
+  /**
+   * @brief Remove old measurements, except for protected IDs.
+   */
+  void cleanup_measurements(double timestamp, const std::unordered_set<size_t> &protected_ids);
 
   /**
    * @brief This function will delete all feature measurements that are at the specified timestamp
