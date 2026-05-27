@@ -1,10 +1,10 @@
 /*
- * Standalone smoke test for ov_lightglue TrackSuperLightGlue.
+ * Standalone smoke test for ov_lightglue TrackSLG.
  */
 
 #include "cam/CamRadtan.h"
 #include "feat/FeatureDatabase.h"
-#include "track/TrackSuperLightGlue.h"
+#include "track/TrackSLG.h"
 #include "utils/sensor_data.h"
 
 #include <Eigen/Core>
@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     cam->set_value(calib);
     cameras.insert({0, cam});
 
-    ov_lightglue::TrackSuperLightGlueConfig cfg;
+    ov_lightglue::TrackSLGConfig cfg;
     cfg.superpoint_onnx_path = superpoint_onnx_path;
     cfg.lightglue_onnx_path = lightglue_onnx_path;
     cfg.use_gpu = use_gpu;
@@ -213,9 +213,9 @@ int main(int argc, char **argv) {
     cfg.min_feature_distance_px = 10;
     cfg.refill_tracks = true;
 
-    ov_lightglue::TrackSuperLightGlue tracker(cameras, 300, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg);
+    ov_lightglue::TrackSLG tracker(cameras, 300, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg);
 
-    std::cout << "TrackSuperLightGlue smoke test success\n";
+    std::cout << "TrackSLG smoke test success\n";
     const std::string window_name = "track_superlightglue_smoke_test_vis";
     bool show_all_matches = true;
     UiState ui_state;
@@ -296,7 +296,7 @@ int main(int argc, char **argv) {
       cv::destroyAllWindows();
     }
   } catch (const std::exception &e) {
-    std::cerr << "TrackSuperLightGlue smoke test failed: " << e.what() << std::endl;
+    std::cerr << "TrackSLG smoke test failed: " << e.what() << std::endl;
     return 4;
   }
 

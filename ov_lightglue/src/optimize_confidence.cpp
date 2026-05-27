@@ -1,5 +1,5 @@
 /*
- * Confidence threshold optimizer for TrackSuperLightGlue.
+ * Confidence threshold optimizer for TrackSLG.
  *
  * This tool uses simulated annealing (SA) to tune:
  *   - detect_min_confidence (d)
@@ -15,8 +15,8 @@
  */
 
 #include "cam/CamRadtan.h"
-#include "track/TrackSuperLightGlue.h"
-#include "track/TrackerSuperLightGlueConfig.h"
+#include "track/TrackSLG.h"
+#include "track/TrackSLGConfig.h"
 #include "utils/sensor_data.h"
 
 #include <Eigen/Core>
@@ -91,9 +91,9 @@ struct Settings {
   std::string mp4_path;
 };
 
-class TrackSuperLightGlueExposed final : public ov_lightglue::TrackSuperLightGlue {
+class TrackSLGExposed final : public ov_lightglue::TrackSLG {
 public:
-  using ov_lightglue::TrackSuperLightGlue::TrackSuperLightGlue;
+  using ov_lightglue::TrackSLG::TrackSLG;
 
   void set_confidences(float detect_min_confidence, float match_min_confidence) {
     config_.detect_min_confidence = detect_min_confidence;
@@ -182,7 +182,7 @@ float clampf(float x, float lo, float hi) {
   return std::max(lo, std::min(hi, x));
 }
 
-std::unique_ptr<TrackSuperLightGlueExposed> create_tracker(const cv::Size &size, const Settings &s, const SAParams &p) {
+std::unique_ptr<TrackSLGExposed> create_tracker(const cv::Size &size, const Settings &s, const SAParams &p) {
   std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras;
   auto cam = std::make_shared<ov_core::CamRadtan>(size.width, size.height);
   Eigen::Matrix<double, 8, 1> calib;
@@ -190,15 +190,15 @@ std::unique_ptr<TrackSuperLightGlueExposed> create_tracker(const cv::Size &size,
   cam->set_value(calib);
   cameras.insert({0, cam});
 
-  ov_lightglue::TrackSuperLightGlueConfig cfg;
+  ov_lightglue::TrackSLGConfig cfg;
   cfg.superpoint_onnx_path = s.superpoint_onnx_path;
   cfg.lightglue_onnx_path = s.lightglue_onnx_path;
   cfg.use_gpu = s.use_gpu;
   cfg.detect_min_confidence = p.d;
   cfg.match_min_confidence = p.m;
 
-  auto tracker = std::unique_ptr<TrackSuperLightGlueExposed>(
-      new TrackSuperLightGlueExposed(cameras, s.target_active_features, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg));
+  auto tracker = std::unique_ptr<TrackSLGExposed>(
+      new TrackSLGExposed(cameras, s.target_active_features, 0, false, ov_core::TrackBase::HistogramMethod::NONE, cfg));
   tracker->set_confidences(p.d, p.m);
   return tracker;
 }

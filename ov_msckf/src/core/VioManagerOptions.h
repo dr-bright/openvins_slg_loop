@@ -44,7 +44,7 @@
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 
-#include "track/TrackerSuperLightGlueConfig.h"
+#include "track/TrackSLGConfig.h"
 
 namespace ov_msckf {
 
@@ -443,8 +443,8 @@ struct VioManagerOptions {
   /// Frequency we want to track images at (higher freq ones will be dropped)
   double track_frequency = 20.0;
 
-  /// SuperPoint + LightGlue tracker configuration
-  ov_lightglue::TrackSuperLightGlueConfig slg_config;
+  /// SLG tracker configuration
+  ov_lightglue::TrackSLGConfig slg_config;
 
   /// Parameters used by our feature initialize / triangulator
   ov_core::FeatureInitializerOptions featinit_options;

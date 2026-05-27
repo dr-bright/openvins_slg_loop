@@ -33,8 +33,8 @@ if (catkin_FOUND AND ENABLE_ROS)
 
   add_library(${PROJECT_NAME}
     src/track/slg_backend.cpp
-    src/track/TrackerSuperLightGlueConfig.cpp
-    src/track/TrackSuperLightGlue.cpp
+    src/track/TrackSLGConfig.cpp
+    src/track/TrackSLG.cpp
   )
   target_link_libraries(${PROJECT_NAME}
     ${catkin_LIBRARIES}
@@ -141,8 +141,8 @@ elseif (ament_cmake_FOUND AND ENABLE_ROS)
 
   add_library(${PROJECT_NAME}
     src/track/slg_backend.cpp
-    src/track/TrackerSuperLightGlueConfig.cpp
-    src/track/TrackSuperLightGlue.cpp
+    src/track/TrackSLGConfig.cpp
+    src/track/TrackSLG.cpp
   )
   target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
