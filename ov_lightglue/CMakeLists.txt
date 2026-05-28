@@ -33,6 +33,8 @@ if (catkin_FOUND AND ENABLE_ROS)
 
   add_library(${PROJECT_NAME}
     src/track/slg_backend.cpp
+    src/track/FeatureSLG.cpp
+    src/track/FeatureDatabaseSLG.cpp
     src/track/TrackSLGConfig.cpp
     src/track/TrackSLG.cpp
   )
@@ -141,6 +143,8 @@ elseif (ament_cmake_FOUND AND ENABLE_ROS)
 
   add_library(${PROJECT_NAME}
     src/track/slg_backend.cpp
+    src/track/FeatureSLG.cpp
+    src/track/FeatureDatabaseSLG.cpp
     src/track/TrackSLGConfig.cpp
     src/track/TrackSLG.cpp
   )

@@ -93,8 +93,8 @@ protected:
    * Every accepted track must be written in both pixel and undistorted coordinates
    * so downstream VIO estimators can consume consistent measurement history.
    */
-  void update_feature_database(double timestamp, size_t cam_id, const std::vector<cv::KeyPoint> &kpts,
-                               const std::vector<size_t> &ids);
+  void update_feature_database(double timestamp, size_t cam_id, const std::vector<cv::KeyPoint> &kpts, const std::vector<size_t> &ids,
+                               const cv::Mat &desc);
 
   /**
    * @brief Apply tracker image pre-processing configured by histogram mode.
