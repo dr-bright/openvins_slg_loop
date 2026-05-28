@@ -32,8 +32,8 @@ size_t UpdaterSLGM::process_landmarks(double timestamp, std::vector<TrackedLandm
   for (TrackedLandmarkSLGM &tracked_landmark : tracked_landmarks) {
     const auto assignment = assignments_by_featid.find(tracked_landmark.featid);
     if (assignment != assignments_by_featid.end()) {
-      tracked_landmark.map_landmark_id = assignment->second.map_landmark_id;
-      tracked_landmark.map_match_confidence = assignment->second.map_match_confidence;
+      tracked_landmark.map_landmark_id = assignment->second->map_landmark_id;
+      tracked_landmark.map_match_confidence = assignment->second->map_match_confidence;
     }
     if (tracked_landmark.should_marg) {
       dying_landmarks.push_back(tracked_landmark);
