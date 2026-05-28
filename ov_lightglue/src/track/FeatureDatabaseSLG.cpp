@@ -42,7 +42,6 @@ void FeatureDatabaseSLG::update_feature_slg(size_t id, double timestamp, size_t 
     feat->uvs_norm.clear();
     feat->timestamps.clear();
     feat->descriptors.clear();
-    feat->descriptor_timestamps.clear();
     feat->scores.clear();
     feat->to_delete = false;
   }
@@ -51,7 +50,6 @@ void FeatureDatabaseSLG::update_feature_slg(size_t id, double timestamp, size_t 
   feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
   feat->timestamps[cam_id].push_back(timestamp);
   feat->descriptors[cam_id].push_back(descriptor.clone());
-  feat->descriptor_timestamps[cam_id].push_back(timestamp);
   feat->scores[cam_id].push_back(score);
 }
 

@@ -16,9 +16,6 @@ public:
   /// SuperPoint descriptors by camera ID.
   std::unordered_map<size_t, std::vector<cv::Mat>> descriptors;
 
-  /// Timestamps aligned with descriptors by camera ID.
-  std::unordered_map<size_t, std::vector<double>> descriptor_timestamps;
-
   /// SuperPoint detector scores aligned with descriptors by camera ID.
   std::unordered_map<size_t, std::vector<float>> scores;
 };
