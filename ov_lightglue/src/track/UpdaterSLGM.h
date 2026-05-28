@@ -9,9 +9,22 @@
 
 #include <Eigen/Eigen>
 #include <memory>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <opencv2/core.hpp>
+#include <opencv2/features2d.hpp>
+
+namespace ov_lightglue {
+
+class TrackSLG;
+
+} // namespace ov_lightglue
+
+namespace ov_type {
+class Landmark;
+} // namespace ov_type
 
 namespace ov_lightglue {
 
@@ -38,20 +51,37 @@ struct SLGMLandmark {
   double last_seen = -1.0;
 };
 
+struct TrackedLandmarkSLGM {
+  std::shared_ptr<ov_type::Landmark> landmark;
+  size_t featid = 0;
+  Eigen::Vector3d p_FinG = Eigen::Vector3d::Zero();
+  bool should_marg = false;
+  int unique_camera_id = -1;
+  int unobserved_count = 0;
+  int update_fail_count = 0;
+  size_t map_landmark_id = static_cast<size_t>(-1);
+  double map_match_confidence = -1.0;
+};
+
 class UpdaterSLGM {
 public:
+  static constexpr size_t INVALID_MAP_LANDMARK_INDEX = static_cast<size_t>(-1);
+
   struct Options {
-    double merge_distance_m = 0.15;
     size_t max_descriptors_per_landmark = 64;
   };
 
-  UpdaterSLGM();
+  explicit UpdaterSLGM(std::shared_ptr<TrackSLG> tracker = nullptr);
 
-  explicit UpdaterSLGM(Options options);
+  explicit UpdaterSLGM(Options options, std::shared_ptr<TrackSLG> tracker = nullptr);
 
-  bool process_dying_landmark(size_t featid, const Eigen::Vector3d &p_FinG, const std::shared_ptr<FeatureSLG> &feature);
+  void set_tracker(std::shared_ptr<TrackSLG> tracker) { tracker_ = std::move(tracker); }
+
+  size_t process_landmarks(double timestamp, std::vector<TrackedLandmarkSLGM> landmarks);
 
   const std::vector<SLGMLandmark> &landmarks() const { return landmarks_; }
+
+  const std::unordered_map<size_t, size_t> &ekf_map_assignments() const { return ekf_map_assignments_; }
 
   size_t map_size() const { return landmarks_.size(); }
 
@@ -64,7 +94,11 @@ public:
   size_t stored_descriptors() const { return stored_descriptors_; }
 
 protected:
-  size_t find_spatial_match(const Eigen::Vector3d &p_FinG) const;
+  bool process_dying_landmark(const TrackedLandmarkSLGM &landmark, const std::shared_ptr<FeatureSLG> &feature);
+
+  size_t process_dying_landmarks(const std::vector<TrackedLandmarkSLGM> &dying_landmarks);
+
+  std::vector<TrackedLandmarkSLGM> match_current_landmarks(double timestamp, const std::vector<TrackedLandmarkSLGM> &current_landmarks);
 
   std::vector<SLGMDescriptor> collect_descriptors(size_t featid, const std::shared_ptr<FeatureSLG> &feature) const;
 
@@ -72,8 +106,18 @@ protected:
 
   void cull_descriptors(SLGMLandmark &landmark);
 
+  bool build_map_matching_set(std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors, std::vector<size_t> &landmark_indices) const;
+
+  size_t find_map_landmark_index(size_t map_landmark_id) const;
+
+  std::shared_ptr<FeatureSLG> get_feature_slg(size_t featid) const;
+
+  bool get_current_observation(double timestamp, const std::shared_ptr<FeatureSLG> &feature, cv::KeyPoint &keypoint, cv::Mat &descriptor) const;
+
   Options options_;
+  std::shared_ptr<TrackSLG> tracker_;
   std::vector<SLGMLandmark> landmarks_;
+  std::unordered_map<size_t, size_t> ekf_map_assignments_;
   size_t next_map_id_ = 1;
   size_t processed_landmarks_ = 0;
   size_t spawned_landmarks_ = 0;

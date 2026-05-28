@@ -16,6 +16,7 @@
 namespace ov_lightglue {
 
 class slg_backend;
+class UpdaterSLGM;
 
 /**
  * @brief Tracker frontend skeleton using SuperPoint features and LightGlue matching.
@@ -24,6 +25,8 @@ class slg_backend;
  * integrated in VioManager similarly to TrackKLT / TrackDescriptor / TrackPlane.
  */
 class TrackSLG : public ov_core::TrackBase {
+  friend class UpdaterSLGM;
+
 public:
   /**
    * @brief Constructor with base tracker options.

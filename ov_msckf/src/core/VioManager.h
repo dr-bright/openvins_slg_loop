@@ -157,9 +157,9 @@ protected:
   void do_feature_propagate_update(const ov_core::CameraData &message);
 
   /**
-   * @brief Capture SLG descriptor payloads from SLAM landmarks before they are marginalized.
+   * @brief Hand current EKF SLAM landmarks to the persistent SLG map updater.
    */
-  void process_dying_slg_landmarks();
+  void process_slgm_landmarks(double timestamp);
 
   /**
    * @brief This function will try to initialize the state.
