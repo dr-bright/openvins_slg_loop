@@ -168,15 +168,6 @@ This is especially important when current in-state SLAM landmarks are gathered
 for `UpdaterSLAM`. Protected retained tracks are map-capture material, not live
 measurements.
 
-## Descriptor History Is Deferred
-
-SLG will eventually need SuperPoint descriptor history. KLT will not. ORB-like
-future mappers may need their own metadata.
-
-For now, no descriptor storage is added. We first test whether protected
-`to_delete` retention alone preserves native estimator behavior. If it still
-fails, we will locate the exact missing distinction and then decide whether
-additional fields, subclassed features, or a separate archive are justified.
 
 ## UpdaterSLGM Timing
 

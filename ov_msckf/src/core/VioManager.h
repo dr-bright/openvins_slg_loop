@@ -42,6 +42,9 @@ class FeatureInitializer;
 namespace ov_init {
 class InertialInitializer;
 } // namespace ov_init
+namespace ov_lightglue {
+class UpdaterSLGM;
+} // namespace ov_lightglue
 
 namespace ov_msckf {
 
@@ -154,6 +157,11 @@ protected:
   void do_feature_propagate_update(const ov_core::CameraData &message);
 
   /**
+   * @brief Capture SLG descriptor payloads from SLAM landmarks before they are marginalized.
+   */
+  void process_dying_slg_landmarks();
+
+  /**
    * @brief This function will try to initialize the state.
    *
    * This should call on our initializer and try to init the state.
@@ -202,6 +210,9 @@ protected:
 
   /// Our SLAM/ARUCO feature updater
   std::shared_ptr<UpdaterSLAM> updaterSLAM;
+
+  /// Persistent SLG map accumulator
+  std::shared_ptr<ov_lightglue::UpdaterSLGM> updaterSLGM;
 
   /// Our zero velocity tracker
   std::shared_ptr<UpdaterZeroVelocity> updaterZUPT;
