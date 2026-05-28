@@ -5,6 +5,7 @@
  */
 
 #include "track/TrackSLG.h"
+#include "track/FeatureDatabaseSLG.h"
 #include "track/slg_backend.h"
 
 #include "cam/CamBase.h"
@@ -26,6 +27,7 @@ namespace ov_lightglue {
 TrackSLG::TrackSLG(std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                    HistogramMethod histmethod, TrackSLGConfig config)
     : TrackBase(std::move(cameras), numfeats, numaruco, stereo, histmethod), config_(std::move(config)) {
+  database = std::make_shared<FeatureDatabaseSLG>();
   initialize_models();
   if (config_.detect_min_confidence >= 0.0f) {
     PRINT_INFO("[SLG]: tracker created: num_features=%d match_min_confidence=%.3f refill=%d temporal_ransac=%d "
@@ -145,7 +147,7 @@ void TrackSLG::feed_monocular(const ov_core::CameraData &message, size_t msg_id)
     }
   }
 
-  update_feature_database(message.timestamp, cam_id, accepted_kpts, accepted_ids);
+  update_feature_database(message.timestamp, cam_id, accepted_kpts, accepted_ids, accepted_desc);
 
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
@@ -182,15 +184,21 @@ void TrackSLG::run_lightglue(const cv::Size &size0, const std::vector<cv::KeyPoi
 }
 
 void TrackSLG::update_feature_database(double timestamp, size_t cam_id, const std::vector<cv::KeyPoint> &kpts,
-                                                  const std::vector<size_t> &ids) {
+                                                  const std::vector<size_t> &ids, const cv::Mat &desc) {
   if (kpts.size() != ids.size()) {
     return;
   }
 
+  std::shared_ptr<FeatureDatabaseSLG> database_slg = std::static_pointer_cast<FeatureDatabaseSLG>(database);
   for (size_t i = 0; i < kpts.size(); i++) {
     const cv::Point2f uv = kpts.at(i).pt;
     const cv::Point2f uvn = camera_calib.at(cam_id)->undistort_cv(uv);
-    database->update_feature(ids.at(i), timestamp, cam_id, uv.x, uv.y, uvn.x, uvn.y);
+    if (database_slg != nullptr && desc.rows == static_cast<int>(kpts.size())) {
+      database_slg->update_feature_slg(ids.at(i), timestamp, cam_id, uv.x, uv.y, uvn.x, uvn.y, desc.row(static_cast<int>(i)),
+                                       kpts.at(i).response);
+    } else {
+      database->update_feature(ids.at(i), timestamp, cam_id, uv.x, uv.y, uvn.x, uvn.y);
+    }
   }
 }
 
