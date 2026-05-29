@@ -50,8 +50,11 @@ public:
   struct Options {
     double spatial_match_radius_m = 0.05;
     double confident_match_radius_m = 0.05;
+    double pose_agreement_translation_m = 0.25;
+    double pose_agreement_rotation_rad = 0.25;
     size_t min_pose_matches = 3;
     size_t transform_estimation_cap = 100;
+    size_t min_map_landmarks_for_icp = 400;
     bool update_state = false;
   };
 
@@ -77,7 +80,7 @@ public:
   size_t merged_landmarks() const { return merged_landmarks_; }
 
 protected:
-  bool match_landmarks(std::vector<TrackedLandmark> &landmarks, const Eigen::Isometry3d &T_M_E) const;
+  bool match_landmarks(std::vector<TrackedLandmark> &landmarks, const Eigen::Isometry3d &T_M_G);
 
   size_t find_map_landmark_index(size_t map_landmark_id) const;
 
@@ -87,6 +90,7 @@ protected:
                                         Eigen::Isometry3d &T_dst_src, double &mean_error_m, double &max_error_m);
 
   Options options_;
+  std::shared_ptr<ov_core::TrackBase> tracker_;
   TransformMapToGlobal map_to_global_;
   std::vector<PersistentLandmark> landmarks_;
   size_t next_map_id_ = 1;
