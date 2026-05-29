@@ -98,6 +98,14 @@ int main(int argc, char **argv) {
     PRINT_DEBUG("[SERIAL]: cam: %s\n", cam_topic.c_str());
   }
 
+  // Republish decoded camera frames so ROS consumers such as ov_secondary can
+  // synchronize against the same images the serial filter is processing.
+  ros::NodeHandle nh_public;
+  std::vector<ros::Publisher> pub_cameras;
+  for (const auto &cam_topic : topic_cameras) {
+    pub_cameras.emplace_back(nh_public.advertise<sensor_msgs::Image>(cam_topic, 2));
+  }
+
   // Location of the ROS bag we want to read in
   std::string path_to_bag;
   nh->param<std::string>("path_bag", path_to_bag, "/home/patrick/datasets/eth/V1_01_easy.bag");
@@ -285,6 +293,7 @@ int main(int argc, char **argv) {
           PRINT_ERROR(RED "[SERIAL]: Failed to decode camera frame for cam0\n" RESET);
           return EXIT_FAILURE;
         }
+        pub_cameras.at(0).publish(msg0);
         viz->callback_monocular(msg0, 0);
       } else if (params.state_options.num_cameras == 2) {
         auto msg0 = decode_image_msg(msgs.at(camid_to_msg_index.at(0)));
@@ -293,6 +302,8 @@ int main(int argc, char **argv) {
           PRINT_ERROR(RED "[SERIAL]: Failed to decode stereo camera frame\n" RESET);
           return EXIT_FAILURE;
         }
+        pub_cameras.at(0).publish(msg0);
+        pub_cameras.at(1).publish(msg1);
         used_index.insert(camid_to_msg_index.at(0)); // skip this message
         used_index.insert(camid_to_msg_index.at(1)); // skip this message
         viz->callback_stereo(msg0, msg1, 0, 1);
