@@ -45,6 +45,8 @@ public:
   /// Feature ID of this landmark (corresponds to frontend id)
   size_t _featid;
 
+  size_t _map_landmark_id = static_cast<size_t> (-1);
+
   /// What unique camera stream this slam feature was observed from
   int _unique_camera_id = -1;
 
