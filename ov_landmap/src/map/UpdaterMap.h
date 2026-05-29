@@ -7,31 +7,26 @@
 
 #include <Eigen/Eigen>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 
 namespace ov_type {
 class Landmark;
 } // namespace ov_type
 
+namespace ov_core {
+class TrackBase;
+} // namespace ov_core
+
 namespace ov_landmap {
 
-struct TrackedLandmarkMap {
+struct TrackedLandmark {
   std::shared_ptr<ov_type::Landmark> landmark;
-  size_t featid = 0;
   Eigen::Vector3d p_FinG = Eigen::Vector3d::Zero();
   Eigen::Vector3d p_FinM = Eigen::Vector3d::Zero();
-  bool has_p_FinM = false;
-  bool should_marg = false;
-  int unique_camera_id = -1;
-  int unobserved_count = 0;
-  int update_fail_count = 0;
-  size_t map_landmark_id = static_cast<size_t>(-1);
-  double map_match_distance = -1.0;
-  double map_match_confidence = -1.0;
+  // all the data that was previously there now lives inside ov_type::Landmark
 };
 
-struct PersistentLandmarkMap {
+struct PersistentLandmark {
   size_t map_id = 0;
   Eigen::Vector3d p_FinM = Eigen::Vector3d::Zero();
   size_t source_landmarks = 0;
@@ -41,13 +36,11 @@ struct PersistentLandmarkMap {
   double last_seen = -1.0;
 };
 
-struct PoseEstimateMap {
-  bool valid = false;
-  Eigen::Isometry3d T_M_E = Eigen::Isometry3d::Identity();
-  Eigen::Isometry3d current_pose_from_ekf = Eigen::Isometry3d::Identity();
-  size_t num_matches = 0;
-  double mean_match_error_m = -1.0;
-  double max_match_error_m = -1.0;
+struct TransformMapToGlobal {
+  Eigen::Isometry3d transform = Eigen::Isometry3d::Identity();
+  size_t measurements = 0;
+  // after TRANSFORM_MEASUREMENT_CAP = 100 is reached it is no longer estimated
+  // before the cap is reached UpdaterMap cant predict and must listen
 };
 
 class UpdaterMap {
@@ -58,21 +51,22 @@ public:
     double spatial_match_radius_m = 0.05;
     double confident_match_radius_m = 0.05;
     size_t min_pose_matches = 3;
+    size_t transform_estimation_cap = 100;
+    bool update_state = false;
   };
 
   UpdaterMap();
 
   explicit UpdaterMap(Options options);
 
-  PoseEstimateMap process_landmarks(const std::vector<TrackedLandmarkMap> &landmarks,
-                                    const Eigen::Isometry3d &current_pose_from_ekf);
+  explicit UpdaterMap(std::shared_ptr<ov_core::TrackBase> tracker, Options options);
 
-  PoseEstimateMap estimate_pose(const std::vector<TrackedLandmarkMap> &landmarks,
-                                const Eigen::Isometry3d &current_pose_from_ekf) const;
+  /// returns pose in global frame
+  Eigen::Isometry3d process_landmarks(std::vector<TrackedLandmark> landmarks, const Eigen::Isometry3d &current_pose_from_ekf);
 
-  bool update_state_with_pose_estimate(const PoseEstimateMap &pose_estimate);
+  const Eigen::Isometry3d &ekf_to_map() const { return map_to_global_.transform; }
 
-  const std::vector<PersistentLandmarkMap> &landmarks() const { return landmarks_; }
+  const std::vector<PersistentLandmark> &landmarks() const { return landmarks_; }
 
   size_t map_size() const { return landmarks_.size(); }
 
@@ -83,23 +77,18 @@ public:
   size_t merged_landmarks() const { return merged_landmarks_; }
 
 protected:
-  std::vector<TrackedLandmarkMap> match_landmarks(const std::vector<TrackedLandmarkMap> &landmarks,
-                                                  const Eigen::Isometry3d &T_M_E) const;
-
-  size_t process_dying_landmarks(const std::vector<TrackedLandmarkMap> &dying_landmarks);
-
-  bool process_dying_landmark(const TrackedLandmarkMap &landmark);
+  bool match_landmarks(std::vector<TrackedLandmark> &landmarks, const Eigen::Isometry3d &T_M_E) const;
 
   size_t find_map_landmark_index(size_t map_landmark_id) const;
 
   static double confidence_from_distance(double distance_m, double confident_radius_m, double max_radius_m);
 
-  static bool estimate_rigid_transform(const std::vector<Eigen::Vector3d> &src, const std::vector<Eigen::Vector3d> &dst,
-                                       Eigen::Isometry3d &T_dst_src, double &mean_error_m, double &max_error_m);
+  static float estimate_rigid_transform(const std::vector<Eigen::Vector3d> &src, const std::vector<Eigen::Vector3d> &dst,
+                                        Eigen::Isometry3d &T_dst_src, double &mean_error_m, double &max_error_m);
 
   Options options_;
-  std::vector<PersistentLandmarkMap> landmarks_;
-  std::unordered_map<size_t, size_t> ekf_map_assignments_;
+  TransformMapToGlobal map_to_global_;
+  std::vector<PersistentLandmark> landmarks_;
   size_t next_map_id_ = 1;
   size_t processed_landmarks_ = 0;
   size_t spawned_landmarks_ = 0;
