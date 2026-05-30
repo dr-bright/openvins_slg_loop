@@ -10,6 +10,7 @@
 
 #include "track/slg_backend.h"
 
+#include <Eigen/Dense>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -17,11 +18,13 @@
 #include <cstring>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -35,6 +38,9 @@
 #include <pcl/PCLPointCloud2.h>
 #include <pcl/PCLPointField.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/registration/transformation_estimation_svd.h>
 
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
@@ -50,6 +56,7 @@ struct VideoFrame {
 
 struct OverlayPoint {
   double timestamp = std::numeric_limits<double>::quiet_NaN();
+  Eigen::Vector3d p_G = Eigen::Vector3d::Zero();
   double u = 0.0;
   double v = 0.0;
   uint64_t feat_id = 0;
@@ -80,6 +87,18 @@ struct MatchLink {
   uint64_t display_id = 0;
   int sibling_frame_a = -1;
   int sibling_frame_b = -1;
+};
+
+struct LoopRequest {
+  int frame_a = -1;
+  int frame_b = -1;
+};
+
+struct TrajectoryPose {
+  double timestamp = 0.0;
+  Eigen::Vector3d p = Eigen::Vector3d::Zero();
+  Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
+  std::vector<double> tail;
 };
 
 struct RenderPatch {
@@ -156,6 +175,9 @@ PcdData load_pcd(const std::string &pcd_path) {
 
   const pcl::PCLPointField *field_u = find_field(cloud, "u");
   const pcl::PCLPointField *field_v = find_field(cloud, "v");
+  const pcl::PCLPointField *field_x = find_field(cloud, "x");
+  const pcl::PCLPointField *field_y = find_field(cloud, "y");
+  const pcl::PCLPointField *field_z = find_field(cloud, "z");
   const pcl::PCLPointField *field_timestamp = find_field(cloud, "timestamp");
   const pcl::PCLPointField *field_feat_id = find_field(cloud, "feat_id");
   if (field_feat_id == nullptr) {
@@ -180,6 +202,9 @@ PcdData load_pcd(const std::string &pcd_path) {
   if (!pcd.has_timestamp) {
     throw std::runtime_error("PCD has no required timestamp field");
   }
+  if (field_x == nullptr || field_y == nullptr || field_z == nullptr) {
+    throw std::runtime_error("PCD has no required x/y/z fields");
+  }
   if (!pcd.has_u || !pcd.has_v) {
     std::cerr << "PCD has no u/v fields; overlay will be empty until these fields are present." << std::endl;
   }
@@ -195,6 +220,9 @@ PcdData load_pcd(const std::string &pcd_path) {
       break;
     }
     OverlayPoint point;
+    point.p_G.x() = read_numeric_field(cloud, point_offset, *field_x);
+    point.p_G.y() = read_numeric_field(cloud, point_offset, *field_y);
+    point.p_G.z() = read_numeric_field(cloud, point_offset, *field_z);
     if (field_timestamp != nullptr) {
       point.timestamp = read_numeric_field(cloud, point_offset, *field_timestamp);
     }
@@ -388,8 +416,73 @@ std::vector<MatchLink> run_frame_matching(const ov_lightglue::slg_backend &backe
   return links;
 }
 
-std::unordered_map<size_t, RenderPatch> build_render_patches(const std::vector<MatchLink> &confirmed, const std::vector<MatchLink> &pending) {
+uint64_t max_feature_id(const PcdData &pcd) {
+  uint64_t max_id = 0;
+  for (const OverlayPoint &point : pcd.points) {
+    max_id = std::max(max_id, point.feat_id);
+  }
+  return max_id;
+}
+
+void replace_feature_id(PcdData &pcd, uint64_t old_id, uint64_t new_id) {
+  if (old_id == 0 || new_id == 0 || old_id == new_id) {
+    return;
+  }
+  for (OverlayPoint &point : pcd.points) {
+    if (point.feat_id == old_id) {
+      point.feat_id = new_id;
+    }
+  }
+}
+
+void replace_display_id(std::vector<MatchLink> &links, uint64_t old_id, uint64_t new_id) {
+  if (old_id == 0 || new_id == 0 || old_id == new_id) {
+    return;
+  }
+  for (MatchLink &link : links) {
+    if (link.display_id == old_id) {
+      link.display_id = new_id;
+    }
+  }
+}
+
+void confirm_pending_matches(PcdData &pcd, std::vector<MatchLink> &confirmed_matches, const std::vector<MatchLink> &pending_matches,
+                             std::vector<LoopRequest> &loop_requests, const LoopRequest &request, uint64_t &next_synthetic_id) {
+  if (pending_matches.empty()) {
+    return;
+  }
+
+  loop_requests.push_back(request);
+
+  for (MatchLink link : pending_matches) {
+    OverlayPoint &a = pcd.points.at(link.point_a);
+    OverlayPoint &b = pcd.points.at(link.point_b);
+    uint64_t kept_id = link.display_id;
+    if (kept_id == 0) {
+      kept_id = next_synthetic_id++;
+    }
+
+    const uint64_t old_a = a.feat_id;
+    const uint64_t old_b = b.feat_id;
+    if (old_a != 0 && old_a != kept_id) {
+      replace_feature_id(pcd, old_a, kept_id);
+      replace_display_id(confirmed_matches, old_a, kept_id);
+    }
+    if (old_b != 0 && old_b != kept_id) {
+      replace_feature_id(pcd, old_b, kept_id);
+      replace_display_id(confirmed_matches, old_b, kept_id);
+    }
+    a.feat_id = kept_id;
+    b.feat_id = kept_id;
+    link.display_id = kept_id;
+    confirmed_matches.push_back(link);
+  }
+}
+
+std::unordered_map<size_t, RenderPatch> build_render_patches(const PcdData &pcd, const std::vector<MatchLink> &confirmed,
+                                                             const std::vector<MatchLink> &pending) {
   std::unordered_map<size_t, RenderPatch> patches;
+  std::unordered_map<uint64_t, int> confirmed_sibling_by_id;
   auto add_link = [&patches](const MatchLink &link) {
     RenderPatch patch_a;
     patch_a.display_id = link.display_id;
@@ -402,6 +495,20 @@ std::unordered_map<size_t, RenderPatch> build_render_patches(const std::vector<M
   };
   for (const MatchLink &link : confirmed) {
     add_link(link);
+    if (link.display_id != 0) {
+      confirmed_sibling_by_id[link.display_id] = link.sibling_frame_a;
+    }
+  }
+  for (size_t i = 0; i < pcd.points.size(); ++i) {
+    const uint64_t feat_id = pcd.points.at(i).feat_id;
+    auto sibling_it = confirmed_sibling_by_id.find(feat_id);
+    if (sibling_it == confirmed_sibling_by_id.end()) {
+      continue;
+    }
+    RenderPatch patch;
+    patch.display_id = feat_id;
+    patch.sibling_frame = sibling_it->second;
+    patches[i] = patch;
   }
   for (const MatchLink &link : pending) {
     add_link(link);
@@ -448,7 +555,7 @@ size_t draw_overlay(cv::Mat &image, const PcdData &pcd, double timestamp, double
 }
 
 std::string key_name_hint() {
-  return "space pause | p/r play | .,/ step | [] speed | Shift+1..9 bind | 1..9 seek | m then 1..9 match | Enter confirm | Backspace abort";
+  return "space pause | p/r play | .,/ step | [] speed | Shift+1..9 bind | 1..9 seek | m then 1..9 match | Enter confirm | Backspace abort | s save";
 }
 
 int shifted_digit_slot(int key) {
@@ -485,6 +592,179 @@ void stdin_seek_thread(StdinSeekState *state) {
   }
 }
 
+std::vector<TrajectoryPose> load_trajectory(const std::string &path) {
+  std::vector<TrajectoryPose> trajectory;
+  if (path.empty()) {
+    return trajectory;
+  }
+  std::ifstream in(path.c_str());
+  if (!in.is_open()) {
+    throw std::runtime_error("failed to open trajectory: " + path);
+  }
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty() || line.at(0) == '#') {
+      continue;
+    }
+    std::istringstream ss(line);
+    TrajectoryPose pose;
+    double qx = 0.0, qy = 0.0, qz = 0.0, qw = 1.0;
+    if (!(ss >> pose.timestamp >> pose.p.x() >> pose.p.y() >> pose.p.z() >> qx >> qy >> qz >> qw)) {
+      continue;
+    }
+    pose.q = Eigen::Quaterniond(qw, qx, qy, qz).normalized();
+    double value = 0.0;
+    while (ss >> value) {
+      pose.tail.push_back(value);
+    }
+    trajectory.push_back(std::move(pose));
+  }
+  return trajectory;
+}
+
+void save_trajectory(const std::string &path, const std::vector<TrajectoryPose> &trajectory) {
+  if (path.empty()) {
+    throw std::runtime_error("save trajectory path is empty");
+  }
+  std::ofstream out(path.c_str());
+  if (!out.is_open()) {
+    throw std::runtime_error("failed to open save trajectory path: " + path);
+  }
+  out << "# timestamp(s) tx ty tz qx qy qz qw";
+  if (!trajectory.empty() && !trajectory.front().tail.empty()) {
+    out << " tail...";
+  }
+  out << "\n";
+  for (const TrajectoryPose &pose : trajectory) {
+    out << std::fixed << std::setprecision(5) << pose.timestamp;
+    out << std::setprecision(6) << " " << pose.p.x() << " " << pose.p.y() << " " << pose.p.z() << " " << pose.q.x() << " " << pose.q.y()
+        << " " << pose.q.z() << " " << pose.q.w();
+    out << std::setprecision(10);
+    for (double value : pose.tail) {
+      out << " " << value;
+    }
+    out << "\n";
+  }
+}
+
+std::vector<size_t> frame_point_indices_with_ids(const PcdData &pcd, const std::vector<VideoFrame> &frames, int frame_index, double tolerance_sec) {
+  const auto range = timestamp_range(pcd, frames.at(frame_index).timestamp, tolerance_sec);
+  std::vector<size_t> indices;
+  for (size_t i = range.first; i < range.second; ++i) {
+    if (pcd.points.at(i).feat_id != 0 && pcd.points.at(i).p_G.allFinite()) {
+      indices.push_back(i);
+    }
+  }
+  return indices;
+}
+
+bool estimate_loop_transform(const PcdData &pcd, const std::vector<VideoFrame> &frames, const LoopRequest &request, double tolerance_sec,
+                             Eigen::Matrix4d &T_target_source, size_t &pair_count) {
+  const int source_frame = std::max(request.frame_a, request.frame_b);
+  const int target_frame = std::min(request.frame_a, request.frame_b);
+  const std::vector<size_t> source_indices = frame_point_indices_with_ids(pcd, frames, source_frame, tolerance_sec);
+  const std::vector<size_t> target_indices = frame_point_indices_with_ids(pcd, frames, target_frame, tolerance_sec);
+
+  std::unordered_map<uint64_t, size_t> target_by_id;
+  for (size_t index : target_indices) {
+    target_by_id[pcd.points.at(index).feat_id] = index;
+  }
+
+  pcl::PointCloud<pcl::PointXYZ> source_cloud;
+  pcl::PointCloud<pcl::PointXYZ> target_cloud;
+  for (size_t source_index : source_indices) {
+    const uint64_t feat_id = pcd.points.at(source_index).feat_id;
+    auto target_it = target_by_id.find(feat_id);
+    if (target_it == target_by_id.end()) {
+      continue;
+    }
+    const Eigen::Vector3d &source = pcd.points.at(source_index).p_G;
+    const Eigen::Vector3d &target = pcd.points.at(target_it->second).p_G;
+    source_cloud.push_back(pcl::PointXYZ(static_cast<float>(source.x()), static_cast<float>(source.y()), static_cast<float>(source.z())));
+    target_cloud.push_back(pcl::PointXYZ(static_cast<float>(target.x()), static_cast<float>(target.y()), static_cast<float>(target.z())));
+  }
+
+  pair_count = source_cloud.size();
+  if (pair_count < 3) {
+    return false;
+  }
+
+  Eigen::Matrix4f T_float = Eigen::Matrix4f::Identity();
+  pcl::registration::TransformationEstimationSVD<pcl::PointXYZ, pcl::PointXYZ, float> estimator;
+  estimator.estimateRigidTransformation(source_cloud, target_cloud, T_float);
+  T_target_source = T_float.cast<double>();
+  return T_target_source.allFinite();
+}
+
+size_t first_trajectory_index_at_or_after(const std::vector<TrajectoryPose> &trajectory, double timestamp) {
+  auto it = std::lower_bound(trajectory.begin(), trajectory.end(), timestamp, [](const TrajectoryPose &pose, double time) {
+    return pose.timestamp < time;
+  });
+  return static_cast<size_t>(std::distance(trajectory.begin(), it));
+}
+
+void apply_transform_to_trajectory_tail(std::vector<TrajectoryPose> &trajectory, size_t start_index, const Eigen::Matrix4d &T) {
+  const Eigen::Matrix3d R = T.block<3, 3>(0, 0);
+  const Eigen::Vector3d t = T.block<3, 1>(0, 3);
+  const Eigen::Quaterniond q_R(R);
+  for (size_t i = start_index; i < trajectory.size(); ++i) {
+    trajectory.at(i).p = R * trajectory.at(i).p + t;
+    trajectory.at(i).q = (q_R * trajectory.at(i).q).normalized();
+  }
+}
+
+void perform_correction_and_save(const PcdData &pcd, const std::vector<VideoFrame> &frames, const std::vector<LoopRequest> &loop_requests,
+                                 const std::string &traj_path, const std::string &save_traj_path, double tolerance_sec) {
+  if (traj_path.empty() || save_traj_path.empty()) {
+    std::cout << "Save ignored: traj.txt and save_traj.txt must be provided" << std::endl;
+    return;
+  }
+  std::vector<TrajectoryPose> trajectory = load_trajectory(traj_path);
+  if (trajectory.empty()) {
+    std::cout << "Save ignored: trajectory is empty" << std::endl;
+    return;
+  }
+  if (loop_requests.empty()) {
+    save_trajectory(save_traj_path, trajectory);
+    std::cout << "Saved unchanged trajectory: " << save_traj_path << std::endl;
+    return;
+  }
+
+  std::vector<LoopRequest> sorted_requests = loop_requests;
+  std::sort(sorted_requests.begin(), sorted_requests.end(), [](const LoopRequest &a, const LoopRequest &b) {
+    return std::max(a.frame_a, a.frame_b) < std::max(b.frame_a, b.frame_b);
+  });
+
+  size_t applied = 0;
+  for (const LoopRequest &request : sorted_requests) {
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    size_t pair_count = 0;
+    if (!estimate_loop_transform(pcd, frames, request, tolerance_sec, T, pair_count)) {
+      std::cout << "Loop request frames " << (request.frame_a + 1) << " <-> " << (request.frame_b + 1)
+                << " skipped: insufficient/invalid 3D pairs (" << pair_count << ")" << std::endl;
+      continue;
+    }
+    const int source_frame = std::max(request.frame_a, request.frame_b);
+    const double source_time = frames.at(source_frame).timestamp;
+    const size_t start_index = first_trajectory_index_at_or_after(trajectory, source_time);
+    if (start_index >= trajectory.size()) {
+      std::cout << "Loop request frames " << (request.frame_a + 1) << " <-> " << (request.frame_b + 1)
+                << " skipped: no trajectory sample after source frame" << std::endl;
+      continue;
+    }
+    apply_transform_to_trajectory_tail(trajectory, start_index, T);
+    ++applied;
+    const Eigen::Vector3d trans = T.block<3, 1>(0, 3);
+    std::cout << "Applied loop request frames " << (request.frame_a + 1) << " <-> " << (request.frame_b + 1) << " using " << pair_count
+              << " pairs, translation_norm=" << trans.norm() << std::endl;
+  }
+
+  save_trajectory(save_traj_path, trajectory);
+  std::cout << "Saved corrected trajectory to " << save_traj_path << " using " << applied << "/" << sorted_requests.size()
+            << " loop requests" << std::endl;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -506,7 +786,7 @@ int main(int argc, char **argv) {
 
   try {
     std::vector<VideoFrame> frames = load_video_frames(bag_path);
-    const PcdData pcd = load_pcd(pcd_path);
+    PcdData pcd = load_pcd(pcd_path);
     ov_lightglue::slg_backend backend(superpoint_path, lightglue_path, use_gpu, ov_lightglue::slg_backend::log_level::warning);
     const double fps = infer_fps(frames);
     const double tolerance_sec = std::max(0.5 / fps, 1e-3);
@@ -529,6 +809,10 @@ int main(int argc, char **argv) {
     std::map<int, int> bookmarks;
     std::vector<MatchLink> pending_matches;
     std::vector<MatchLink> confirmed_matches;
+    std::vector<LoopRequest> loop_requests;
+    LoopRequest pending_loop_request;
+    bool has_pending_loop_request = false;
+    uint64_t next_synthetic_id = max_feature_id(pcd) + 1;
     bool awaiting_match_slot = false;
     std::shared_ptr<StdinSeekState> stdin_state = std::make_shared<StdinSeekState>();
     std::thread input_thread([stdin_state]() {
@@ -545,7 +829,7 @@ int main(int argc, char **argv) {
 
       frame_index = std::max(0, std::min(frame_index, static_cast<int>(frames.size()) - 1));
       cv::Mat display = frames.at(frame_index).image_bgr.clone();
-      const std::unordered_map<size_t, RenderPatch> render_patches = build_render_patches(confirmed_matches, pending_matches);
+      const std::unordered_map<size_t, RenderPatch> render_patches = build_render_patches(pcd, confirmed_matches, pending_matches);
       const size_t overlay_count = draw_overlay(display, pcd, frames.at(frame_index).timestamp, tolerance_sec, render_patches);
 
       std::ostringstream status;
@@ -595,6 +879,7 @@ int main(int argc, char **argv) {
       } else if (ctrl_digit_slot(key) >= 0) {
         const int slot = ctrl_digit_slot(key);
         pending_matches.clear();
+        has_pending_loop_request = false;
         auto it = bookmarks.find(slot);
         if (it == bookmarks.end()) {
           std::cout << "Ctrl+" << (slot + 1) << " ignored: slot is not bound" << std::endl;
@@ -602,6 +887,8 @@ int main(int argc, char **argv) {
           std::cout << "Ctrl+" << (slot + 1) << " ignored: bookmarked frame is current frame" << std::endl;
         } else {
           pending_matches = run_frame_matching(backend, pcd, frames, frame_index, it->second, tolerance_sec, 0.5f);
+          pending_loop_request = LoopRequest{frame_index, it->second};
+          has_pending_loop_request = true;
           paused = true;
           std::cout << "Pending match current frame " << (frame_index + 1) << " <-> slot " << (slot + 1) << " frame "
                     << (it->second + 1) << ": " << pending_matches.size() << " matches" << std::endl;
@@ -611,6 +898,7 @@ int main(int argc, char **argv) {
         if (awaiting_match_slot) {
           awaiting_match_slot = false;
           pending_matches.clear();
+          has_pending_loop_request = false;
           auto it = bookmarks.find(slot);
           if (it == bookmarks.end()) {
             std::cout << "Match ignored: slot " << (slot + 1) << " is not bound" << std::endl;
@@ -618,6 +906,8 @@ int main(int argc, char **argv) {
             std::cout << "Match ignored: bookmarked frame is current frame" << std::endl;
           } else {
             pending_matches = run_frame_matching(backend, pcd, frames, frame_index, it->second, tolerance_sec, 0.5f);
+            pending_loop_request = LoopRequest{frame_index, it->second};
+            has_pending_loop_request = true;
             paused = true;
             std::cout << "Pending match current frame " << (frame_index + 1) << " <-> slot " << (slot + 1) << " frame "
                       << (it->second + 1) << ": " << pending_matches.size() << " matches" << std::endl;
@@ -634,14 +924,18 @@ int main(int argc, char **argv) {
           std::cout << "Aborted " << pending_matches.size() << " pending matches" << std::endl;
         }
         pending_matches.clear();
+        has_pending_loop_request = false;
       } else if (key == 10 || key == 13) {
-        if (!pending_matches.empty()) {
-          confirmed_matches.insert(confirmed_matches.end(), pending_matches.begin(), pending_matches.end());
-          std::cout << "Confirmed " << pending_matches.size() << " matches; total confirmed=" << confirmed_matches.size() << std::endl;
+        if (!pending_matches.empty() && has_pending_loop_request) {
+          const size_t count = pending_matches.size();
+          confirm_pending_matches(pcd, confirmed_matches, pending_matches, loop_requests, pending_loop_request, next_synthetic_id);
+          std::cout << "Confirmed " << count << " matches; total confirmed=" << confirmed_matches.size()
+                    << ", loop requests=" << loop_requests.size() << std::endl;
           pending_matches.clear();
+          has_pending_loop_request = false;
         }
-      } else if (key == 'S') {
-        std::cout << "Shift+S save/correction placeholder: procedure not defined yet" << std::endl;
+      } else if (key == 's') {
+        perform_correction_and_save(pcd, frames, loop_requests, traj_path, save_traj_path, tolerance_sec);
       } else if (key != -1) {
         if (awaiting_match_slot) {
           awaiting_match_slot = false;

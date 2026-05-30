@@ -6,7 +6,7 @@ find_package(OpenCV 3 QUIET)
 if (NOT OpenCV_FOUND)
   find_package(OpenCV 4 REQUIRED)
 endif ()
-find_package(PCL REQUIRED COMPONENTS common io)
+find_package(PCL REQUIRED COMPONENTS common io registration)
 find_library(ONNXRUNTIME_LIB onnxruntime REQUIRED)
 
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
