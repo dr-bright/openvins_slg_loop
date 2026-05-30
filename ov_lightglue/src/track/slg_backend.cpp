@@ -383,7 +383,6 @@ void slg_backend::run_lightglue(const cv::Size &size0, const std::vector<cv::Key
   } else {
     const cv::Size resolved_size0 = infer_size_from_keypoints(size0, kpts0);
     const cv::Size resolved_size1 = infer_size_from_keypoints(size1, kpts1);
-    const 
     n_kpts0 = normalize_keypoints(kpts0, resolved_size0.height, resolved_size0.width);
     n_kpts1 = normalize_keypoints(kpts1, resolved_size1.height, resolved_size1.width);
   }

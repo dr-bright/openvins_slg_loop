@@ -19,10 +19,12 @@
 
     <!-- saving trajectory path and timing information -->
     <arg name="dosave"      default="false" />
+    <arg name="dopcd"       default="false" />
     <arg name="dotime"      default="false" />
     <arg name="doeval"      default="false" />
     <arg name="doviz"       default="false" />
     <arg name="path_est"    default="/tmp/traj_estimate.txt" />
+    <arg name="path_pcd"    default="/tmp/slam_points.pcd" />
     <arg name="path_time"   default="/tmp/traj_timing.txt" />
     <arg name="path_metrics" default="/tmp/ov_metrics.csv" />
     <arg name="path_viz"    default="/tmp/ov_estimator_viz.mp4" />
@@ -75,6 +77,14 @@
             <param name="topic"      type="str" value="/ov_msckf/poseimu" />
             <param name="topic_type" type="str" value="PoseWithCovarianceStamped" />
             <param name="output"     type="str" value="$(arg path_est)" />
+        </node>
+    </group>
+
+    <!-- record SLAM point cloud if enabled -->
+    <group if="$(arg dopcd)">
+        <node name="recorder_points_slam" pkg="ov_lightglue" type="pointcloud_to_file" output="screen" required="true">
+            <param name="topic"  type="str" value="/ov_msckf/points_slam" />
+            <param name="output" type="str" value="$(arg path_pcd)" />
         </node>
     </group>
 

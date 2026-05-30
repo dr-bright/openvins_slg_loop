@@ -18,7 +18,6 @@ if (catkin_FOUND AND ENABLE_ROS)
   catkin_package(
     INCLUDE_DIRS src
     CATKIN_DEPENDS roscpp pcl_ros ov_core
-    LIBRARIES ${PROJECT_NAME}
   )
   include_directories(
     src
@@ -27,45 +26,14 @@ if (catkin_FOUND AND ENABLE_ROS)
     ${PCL_INCLUDE_DIRS}
   )
   add_definitions(${PCL_DEFINITIONS})
-
-  add_library(${PROJECT_NAME}
-    src/map/UpdaterMap.cpp
-  )
-  target_link_libraries(${PROJECT_NAME}
-    ${catkin_LIBRARIES}
-    ${PCL_LIBRARIES}
-  )
 elseif (ament_cmake_FOUND AND ENABLE_ROS)
   find_package(rclcpp REQUIRED)
   find_package(ov_core REQUIRED)
-
-  add_library(${PROJECT_NAME}
-    src/map/UpdaterMap.cpp
-  )
-  target_include_directories(${PROJECT_NAME} PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-    $<INSTALL_INTERFACE:include>
-    ${EIGEN3_INCLUDE_DIR}
-    ${PCL_INCLUDE_DIRS}
-  )
-  ament_target_dependencies(${PROJECT_NAME} rclcpp ov_core)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC ${PCL_DEFINITIONS})
-  target_link_libraries(${PROJECT_NAME}
-    ${PCL_LIBRARIES}
-  )
-
-  install(TARGETS ${PROJECT_NAME}
-    EXPORT export_${PROJECT_NAME}
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-  )
   install(DIRECTORY src/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
   )
   ament_export_include_directories(include)
-  ament_export_libraries(${PROJECT_NAME})
   ament_export_dependencies(rclcpp ov_core)
   ament_package()
 else ()

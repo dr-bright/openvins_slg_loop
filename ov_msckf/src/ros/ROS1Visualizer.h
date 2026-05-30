@@ -43,6 +43,7 @@
 
 #include <atomic>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 
