@@ -437,6 +437,31 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
   return slam_feats;
 }
 
+std::map<size_t, std::pair<Eigen::Vector3d, size_t>> VioManager::get_features_SLAM_ex() {
+  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> slam_feats;
+  for (auto &f : state->_features_SLAM) {
+    if ((int)f.first <= 4 * state->_options.max_aruco_features)
+      continue;
+    Eigen::Vector3d p_FinG;
+    if (ov_type::LandmarkRepresentation::is_relative_representation(f.second->_feat_representation)) {
+      // Assert that we have an anchor pose for this feature
+      assert(f.second->_anchor_cam_id != -1);
+      // Get calibration for our anchor camera
+      Eigen::Matrix<double, 3, 3> R_ItoC = state->_calib_IMUtoCAM.at(f.second->_anchor_cam_id)->Rot();
+      Eigen::Matrix<double, 3, 1> p_IinC = state->_calib_IMUtoCAM.at(f.second->_anchor_cam_id)->pos();
+      // Anchor pose orientation and position
+      Eigen::Matrix<double, 3, 3> R_GtoI = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->Rot();
+      Eigen::Matrix<double, 3, 1> p_IinG = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->pos();
+      // Feature in the global frame
+      p_FinG = R_GtoI.transpose() * R_ItoC.transpose() * (f.second->get_xyz(false) - p_IinC) + p_IinG;
+    } else {
+      p_FinG = f.second->get_xyz(false);
+    }
+    slam_feats[f.second->_featid] = {p_FinG, f.second->observed_count};
+  }
+  return slam_feats;
+}
+
 std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
   std::vector<Eigen::Vector3d> aruco_feats;
   for (auto &f : state->_features_SLAM) {

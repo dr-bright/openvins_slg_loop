@@ -20,6 +20,8 @@
   <depend condition="$ROS_VERSION == 1">nav_msgs</depend>
   <depend condition="$ROS_VERSION == 1">sensor_msgs</depend>
   <depend condition="$ROS_VERSION == 1">cv_bridge</depend>
+  <depend condition="$ROS_VERSION == 1">pcl_conversions</depend>
+  <depend condition="$ROS_VERSION == 1">pcl_ros</depend>
   <depend condition="$ROS_VERSION == 1">ov_core</depend>
 
   <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake</buildtool_depend>

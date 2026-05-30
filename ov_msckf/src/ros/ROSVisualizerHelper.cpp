@@ -32,12 +32,12 @@ using namespace ov_msckf;
 using namespace std;
 
 #if ROS_AVAILABLE == 1
-sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(const std::vector<Eigen::Vector3d> &feats) {
+sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(const std::vector<Eigen::Vector3d> &feats, const ros::Time &stamp) {
 
   // Declare message and sizes
   sensor_msgs::PointCloud2 cloud;
   cloud.header.frame_id = "global";
-  cloud.header.stamp = ros::Time::now();
+  cloud.header.stamp = stamp;
   cloud.width = feats.size();
   cloud.height = 1;
   cloud.is_bigendian = false;
@@ -61,6 +61,49 @@ sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(const std::vect
     ++out_y;
     *out_z = (float)pt(2);
     ++out_z;
+  }
+
+  return cloud;
+}
+
+sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats,
+                                                                    const ros::Time &stamp) {
+
+  // Declare message and sizes
+  sensor_msgs::PointCloud2 cloud;
+  cloud.header.frame_id = "global";
+  cloud.header.stamp = stamp;
+  cloud.width = feats.size();
+  cloud.height = 1;
+  cloud.is_bigendian = false;
+  cloud.is_dense = false; // there may be invalid points
+
+  // Setup pointcloud fields
+  sensor_msgs::PointCloud2Modifier modifier(cloud);
+  modifier.setPointCloud2Fields(5, "x", 1, sensor_msgs::PointField::FLOAT32, "y", 1, sensor_msgs::PointField::FLOAT32, "z", 1,
+                                sensor_msgs::PointField::FLOAT32, "feat_id", 1, sensor_msgs::PointField::UINT32, "lifetime", 1,
+                                sensor_msgs::PointField::UINT32);
+  modifier.resize(feats.size());
+
+  // Iterators
+  sensor_msgs::PointCloud2Iterator<float> out_x(cloud, "x");
+  sensor_msgs::PointCloud2Iterator<float> out_y(cloud, "y");
+  sensor_msgs::PointCloud2Iterator<float> out_z(cloud, "z");
+  sensor_msgs::PointCloud2Iterator<uint32_t> out_id(cloud, "feat_id");
+  sensor_msgs::PointCloud2Iterator<uint32_t> out_lifetime(cloud, "lifetime");
+
+  // Fill our iterators
+  for (const auto &feat : feats) {
+    *out_x = (float)feat.second.first(0);
+    ++out_x;
+    *out_y = (float)feat.second.first(1);
+    ++out_y;
+    *out_z = (float)feat.second.first(2);
+    ++out_z;
+    *out_id = static_cast<uint32_t>(feat.first);
+    ++out_id;
+    *out_lifetime = static_cast<uint32_t>(feat.second.second);
+    ++out_lifetime;
   }
 
   return cloud;
@@ -119,6 +162,49 @@ sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(std::share
     ++out_y;
     *out_z = (float)pt(2);
     ++out_z;
+  }
+
+  return cloud;
+}
+
+sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(std::shared_ptr<rclcpp::Node> node,
+                                                                         const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats) {
+
+  // Declare message and sizes
+  sensor_msgs::msg::PointCloud2 cloud;
+  cloud.header.frame_id = "global";
+  cloud.header.stamp = node->now();
+  cloud.width = feats.size();
+  cloud.height = 1;
+  cloud.is_bigendian = false;
+  cloud.is_dense = false; // there may be invalid points
+
+  // Setup pointcloud fields
+  sensor_msgs::PointCloud2Modifier modifier(cloud);
+  modifier.setPointCloud2Fields(5, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+                                sensor_msgs::msg::PointField::FLOAT32, "feat_id", 1, sensor_msgs::msg::PointField::UINT32, "lifetime", 1,
+                                sensor_msgs::msg::PointField::UINT32);
+  modifier.resize(feats.size());
+
+  // Iterators
+  sensor_msgs::PointCloud2Iterator<float> out_x(cloud, "x");
+  sensor_msgs::PointCloud2Iterator<float> out_y(cloud, "y");
+  sensor_msgs::PointCloud2Iterator<float> out_z(cloud, "z");
+  sensor_msgs::PointCloud2Iterator<uint32_t> out_id(cloud, "feat_id");
+  sensor_msgs::PointCloud2Iterator<uint32_t> out_lifetime(cloud, "lifetime");
+
+  // Fill our iterators
+  for (const auto &feat : feats) {
+    *out_x = (float)feat.second.first(0);
+    ++out_x;
+    *out_y = (float)feat.second.first(1);
+    ++out_y;
+    *out_z = (float)feat.second.first(2);
+    ++out_z;
+    *out_id = static_cast<uint32_t>(feat.first);
+    ++out_id;
+    *out_lifetime = static_cast<uint32_t>(feat.second.second);
+    ++out_lifetime;
   }
 
   return cloud;

@@ -27,8 +27,10 @@
 #include <atomic>
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <string>
 
 #include "VioManagerOptions.h"
@@ -42,9 +44,6 @@ class FeatureInitializer;
 namespace ov_init {
 class InertialInitializer;
 } // namespace ov_init
-namespace ov_lightglue {
-class UpdaterSLGM;
-} // namespace ov_lightglue
 
 namespace ov_msckf {
 
@@ -119,6 +118,9 @@ public:
   /// Returns 3d SLAM features in the global frame
   std::vector<Eigen::Vector3d> get_features_SLAM();
 
+  /// Returns 3d SLAM features keyed by frontend feature id in the global frame
+  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> get_features_SLAM_ex();
+
   /// Returns 3d ARUCO features in the global frame
   std::vector<Eigen::Vector3d> get_features_ARUCO();
 
@@ -155,11 +157,6 @@ protected:
    * @param message Contains our timestamp, images, and camera ids
    */
   void do_feature_propagate_update(const ov_core::CameraData &message);
-
-  /**
-   * @brief Hand current EKF SLAM landmarks to the persistent SLG map updater.
-   */
-  void process_slgm_landmarks(double timestamp);
 
   /**
    * @brief This function will try to initialize the state.
@@ -210,9 +207,6 @@ protected:
 
   /// Our SLAM/ARUCO feature updater
   std::shared_ptr<UpdaterSLAM> updaterSLAM;
-
-  /// Persistent SLG map accumulator
-  std::shared_ptr<ov_lightglue::UpdaterSLGM> updaterSLGM;
 
   /// Our zero velocity tracker
   std::shared_ptr<UpdaterZeroVelocity> updaterZUPT;

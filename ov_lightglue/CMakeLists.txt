@@ -6,6 +6,7 @@ find_package(OpenCV 3 QUIET)
 if (NOT OpenCV_FOUND)
   find_package(OpenCV 4 REQUIRED)
 endif ()
+find_package(PCL REQUIRED COMPONENTS common io)
 find_library(ONNXRUNTIME_LIB onnxruntime REQUIRED)
 
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
@@ -14,14 +15,14 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(catkin QUIET COMPONENTS roscpp rosbag geometry_msgs nav_msgs sensor_msgs cv_bridge ov_core)
+find_package(catkin QUIET COMPONENTS roscpp rosbag geometry_msgs nav_msgs sensor_msgs cv_bridge pcl_conversions pcl_ros ov_core)
 find_package(ament_cmake QUIET)
 
 if (catkin_FOUND AND ENABLE_ROS)
   add_definitions(-DROS_AVAILABLE=1)
   catkin_package(
     INCLUDE_DIRS src
-    CATKIN_DEPENDS roscpp rosbag geometry_msgs nav_msgs sensor_msgs cv_bridge ov_core
+    CATKIN_DEPENDS roscpp rosbag geometry_msgs nav_msgs sensor_msgs cv_bridge pcl_conversions pcl_ros ov_core
     LIBRARIES ${PROJECT_NAME}
   )
   include_directories(
@@ -29,13 +30,14 @@ if (catkin_FOUND AND ENABLE_ROS)
     ${catkin_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
   )
+  add_definitions(${PCL_DEFINITIONS})
 
   add_library(${PROJECT_NAME}
     src/track/slg_backend.cpp
     src/track/FeatureSLG.cpp
     src/track/FeatureDatabaseSLG.cpp
-    src/track/UpdaterSLGM.cpp
     src/track/TrackSLGConfig.cpp
     src/track/TrackSLG.cpp
   )
@@ -138,6 +140,14 @@ if (catkin_FOUND AND ENABLE_ROS)
   target_link_libraries(pose_to_file
     ${catkin_LIBRARIES}
   )
+
+  add_executable(pointcloud_to_file
+    src/pointcloud_to_file.cpp
+  )
+  target_link_libraries(pointcloud_to_file
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+  )
 elseif (ament_cmake_FOUND AND ENABLE_ROS)
   find_package(rclcpp REQUIRED)
   find_package(ov_core REQUIRED)
@@ -146,7 +156,6 @@ elseif (ament_cmake_FOUND AND ENABLE_ROS)
     src/track/slg_backend.cpp
     src/track/FeatureSLG.cpp
     src/track/FeatureDatabaseSLG.cpp
-    src/track/UpdaterSLGM.cpp
     src/track/TrackSLGConfig.cpp
     src/track/TrackSLG.cpp
   )

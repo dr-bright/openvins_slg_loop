@@ -28,7 +28,6 @@
 #include "track/TrackKLT.h"
 #include "track/TrackSIM.h"
 #include "track/TrackSLG.h"
-#include "track/UpdaterSLGM.h"
 #include "types/Landmark.h"
 #include "types/LandmarkRepresentation.h"
 #include "utils/opencv_lambda_body.h"
@@ -94,19 +93,6 @@ Eigen::Vector3d landmark_position_in_global(const std::shared_ptr<State> &state,
     p_FinG = R_GtoI.transpose() * R_ItoC.transpose() * (landmark->get_xyz(false) - p_IinC) + p_IinG;
   }
   return p_FinG;
-}
-
-ov_lightglue::TrackedLandmarkSLGM make_tracked_landmark_slgm(const std::shared_ptr<State> &state,
-                                                             const std::shared_ptr<Landmark> &landmark) {
-  ov_lightglue::TrackedLandmarkSLGM tracked;
-  tracked.landmark = landmark;
-  tracked.featid = landmark->_featid;
-  tracked.p_FinG = landmark_position_in_global(state, landmark);
-  tracked.should_marg = landmark->should_marg;
-  tracked.unique_camera_id = landmark->_unique_camera_id;
-  tracked.unobserved_count = landmark->unobserved_count;
-  tracked.update_fail_count = landmark->update_fail_count;
-  return tracked;
 }
 
 std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>>
@@ -470,7 +456,6 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
         params.slg_config);
     trackFEATS = track_slg;
-    updaterSLGM = std::make_shared<ov_lightglue::UpdaterSLGM>(track_slg);
   }
 
   // Initialize our aruco tag extractor
@@ -519,27 +504,6 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   // No need to push back if we are just doing the zv-update at the begining and we have moved
   if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     updaterZUPT->feed_imu(message, oldest_time);
-  }
-}
-
-void VioManager::process_slgm_landmarks(double timestamp) {
-  if (updaterSLGM == nullptr) {
-    return;
-  }
-
-  std::vector<ov_lightglue::TrackedLandmarkSLGM> tracked_landmarks;
-  for (const auto &landmark_pair : state->_features_SLAM) {
-    const std::shared_ptr<Landmark> &landmark = landmark_pair.second;
-    if (landmark == nullptr || (int)landmark->_featid <= 4 * state->_options.max_aruco_features) {
-      continue;
-    }
-    tracked_landmarks.push_back(make_tracked_landmark_slgm(state, landmark));
-  }
-
-  const size_t processed_now = updaterSLGM->process_landmarks(timestamp, std::move(tracked_landmarks));
-  if (processed_now > 0) {
-    PRINT_DEBUG("[SLGM]: processed=%zu map=%zu descriptors=%zu spawned=%zu merged=%zu\n", processed_now, updaterSLGM->map_size(),
-                updaterSLGM->stored_descriptors(), updaterSLGM->spawned_landmarks(), updaterSLGM->merged_landmarks());
   }
 }
 
@@ -842,7 +806,6 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
         inactive_landmarks.at(i)->should_marg = true;
       }
       if (evict_count > 0) {
-        process_slgm_landmarks(message.timestamp);
         StateHelper::marginalize_slam(state);
       }
     }
@@ -879,6 +842,7 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     if (has_active_feat2) {
       feats_slam.push_back(feat2);
       landmark.second->unobserved_count = 0;
+      landmark.second->observed_count++;
     }
     assert(landmark.second->_unique_camera_id != -1);
     bool current_unique_cam =
@@ -897,7 +861,6 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // Lets marginalize out all old SLAM features here
   // These are ones that where not successfully tracked into the current frame
   // We do *NOT* marginalize out our aruco tags landmarks
-  process_slgm_landmarks(message.timestamp);
   StateHelper::marginalize_slam(state);
 
   // Separate our SLAM features into new ones, and old ones

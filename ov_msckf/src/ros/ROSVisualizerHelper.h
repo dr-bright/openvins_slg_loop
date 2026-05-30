@@ -24,6 +24,9 @@
 
 #include <Eigen/Eigen>
 
+#include <cstdint>
+#include <map>
+
 #if ROS_AVAILABLE == 1
 #include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -57,9 +60,19 @@ public:
   /**
    * @brief Will visualize the system if we have new things
    * @param feats Vector of features we will convert into ros format
+   * @param stamp Timestamp to assign to the pointcloud
    * @return ROS pointcloud
    */
-  static sensor_msgs::PointCloud2 get_ros_pointcloud(const std::vector<Eigen::Vector3d> &feats);
+  static sensor_msgs::PointCloud2 get_ros_pointcloud(const std::vector<Eigen::Vector3d> &feats, const ros::Time &stamp = ros::Time::now());
+
+  /**
+   * @brief Convert a feature-id keyed feature map into a ROS pointcloud with xyz, feat_id, and lifetime fields.
+   * @param feats Map from feature id to feature position and lifetime
+   * @param stamp Timestamp to assign to the pointcloud
+   * @return ROS pointcloud
+   */
+  static sensor_msgs::PointCloud2 get_ros_pointcloud_ex(const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats,
+                                                        const ros::Time &stamp = ros::Time::now());
 
   /**
    * @brief Given a ov_type::PoseJPL this will convert into the ros format.
@@ -81,6 +94,15 @@ public:
    * @return ROS pointcloud
    */
   static sensor_msgs::msg::PointCloud2 get_ros_pointcloud(std::shared_ptr<rclcpp::Node> node, const std::vector<Eigen::Vector3d> &feats);
+
+  /**
+   * @brief Convert a feature-id keyed feature map into a ROS pointcloud with xyz, feat_id, and lifetime fields.
+   * @param node ROS2 node pointer
+   * @param feats Map from feature id to feature position and lifetime
+   * @return ROS pointcloud
+   */
+  static sensor_msgs::msg::PointCloud2 get_ros_pointcloud_ex(std::shared_ptr<rclcpp::Node> node,
+                                                             const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats);
 
   /**
    * @brief Given a ov_type::PoseJPL this will convert into the ros format.

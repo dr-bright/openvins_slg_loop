@@ -683,19 +683,23 @@ void ROS1Visualizer::publish_features() {
       pub_points_sim.getNumSubscribers() == 0)
     return;
 
+  std::shared_ptr<State> state = _app->get_state();
+  double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
+  ros::Time feature_stamp(state->_timestamp + t_ItoC);
+
   // Get our good MSCKF features
   std::vector<Eigen::Vector3d> feats_msckf = _app->get_good_features_MSCKF();
-  sensor_msgs::PointCloud2 cloud = ROSVisualizerHelper::get_ros_pointcloud(feats_msckf);
+  sensor_msgs::PointCloud2 cloud = ROSVisualizerHelper::get_ros_pointcloud(feats_msckf, feature_stamp);
   pub_points_msckf.publish(cloud);
 
   // Get our good SLAM features
-  std::vector<Eigen::Vector3d> feats_slam = _app->get_features_SLAM();
-  sensor_msgs::PointCloud2 cloud_SLAM = ROSVisualizerHelper::get_ros_pointcloud(feats_slam);
+  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> feats_slam = _app->get_features_SLAM_ex();
+  sensor_msgs::PointCloud2 cloud_SLAM = ROSVisualizerHelper::get_ros_pointcloud_ex(feats_slam, feature_stamp);
   pub_points_slam.publish(cloud_SLAM);
 
   // Get our good ARUCO features
   std::vector<Eigen::Vector3d> feats_aruco = _app->get_features_ARUCO();
-  sensor_msgs::PointCloud2 cloud_ARUCO = ROSVisualizerHelper::get_ros_pointcloud(feats_aruco);
+  sensor_msgs::PointCloud2 cloud_ARUCO = ROSVisualizerHelper::get_ros_pointcloud(feats_aruco, feature_stamp);
   pub_points_aruco.publish(cloud_ARUCO);
 
   // Skip the rest of we are not doing simulation
@@ -704,7 +708,7 @@ void ROS1Visualizer::publish_features() {
 
   // Get our good SIMULATION features
   std::vector<Eigen::Vector3d> feats_sim = _sim->get_map_vec();
-  sensor_msgs::PointCloud2 cloud_SIM = ROSVisualizerHelper::get_ros_pointcloud(feats_sim);
+  sensor_msgs::PointCloud2 cloud_SIM = ROSVisualizerHelper::get_ros_pointcloud(feats_sim, feature_stamp);
   pub_points_sim.publish(cloud_SIM);
 }
 
