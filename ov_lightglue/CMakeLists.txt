@@ -153,9 +153,11 @@ if (catkin_FOUND AND ENABLE_ROS)
     src/manual_loop_closure.cpp
   )
   target_link_libraries(manual_loop_closure
+    ${PROJECT_NAME}
     ${catkin_LIBRARIES}
     ${OpenCV_LIBRARIES}
     ${PCL_LIBRARIES}
+    ${ONNXRUNTIME_LIB}
   )
 elseif (ament_cmake_FOUND AND ENABLE_ROS)
   find_package(rclcpp REQUIRED)
