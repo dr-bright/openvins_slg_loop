@@ -693,7 +693,7 @@ void ROS1Visualizer::publish_features() {
   pub_points_msckf.publish(cloud);
 
   // Get our good SLAM features
-  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> feats_slam = _app->get_features_SLAM_ex();
+  std::map<size_t, SlamFeatureExport> feats_slam = _app->get_features_SLAM_ex();
   sensor_msgs::PointCloud2 cloud_SLAM = ROSVisualizerHelper::get_ros_pointcloud_ex(feats_slam, feature_stamp);
   pub_points_slam.publish(cloud_SLAM);
 

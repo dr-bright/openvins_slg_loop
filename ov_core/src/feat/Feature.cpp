@@ -23,6 +23,13 @@
 
 using namespace ov_core;
 
+void Feature::export_latest_metadata(std::map<std::string, uint64_t> &u64_fields, std::map<std::string, int64_t> &i64_fields,
+                                     std::map<std::string, double> &f64_fields) const {
+  (void)u64_fields;
+  (void)i64_fields;
+  (void)f64_fields;
+}
+
 void Feature::clean_old_measurements(const std::vector<double> &valid_times) {
 
   // Loop through each of the cameras we have

@@ -33,6 +33,8 @@
 #include "state/State.h"
 #include "state/StateHelper.h"
 
+#include <limits>
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -437,8 +439,8 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
   return slam_feats;
 }
 
-std::map<size_t, std::pair<Eigen::Vector3d, size_t>> VioManager::get_features_SLAM_ex() {
-  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> slam_feats;
+std::map<size_t, SlamFeatureExport> VioManager::get_features_SLAM_ex() {
+  std::map<size_t, SlamFeatureExport> slam_feats;
   for (auto &f : state->_features_SLAM) {
     if ((int)f.first <= 4 * state->_options.max_aruco_features)
       continue;
@@ -457,7 +459,39 @@ std::map<size_t, std::pair<Eigen::Vector3d, size_t>> VioManager::get_features_SL
     } else {
       p_FinG = f.second->get_xyz(false);
     }
-    slam_feats[f.second->_featid] = {p_FinG, f.second->observed_count};
+    SlamFeatureExport export_feature;
+    export_feature.p_FinG = p_FinG;
+    export_feature.lifetime = f.second->observed_count;
+
+    std::shared_ptr<Feature> feature;
+    if (trackFEATS != nullptr && trackFEATS->get_feature_database() != nullptr) {
+      feature = trackFEATS->get_feature_database()->get_feature(f.second->_featid, false);
+    }
+    if (feature != nullptr) {
+      double latest_uv_timestamp = -std::numeric_limits<double>::infinity();
+      for (const auto &cam_uvs : feature->uvs) {
+        const size_t cam_id = cam_uvs.first;
+        const std::vector<Eigen::VectorXf> &uvs = cam_uvs.second;
+        const auto timestamps_it = feature->timestamps.find(cam_id);
+        if (timestamps_it == feature->timestamps.end()) {
+          continue;
+        }
+        const size_t count = std::min(uvs.size(), timestamps_it->second.size());
+        for (size_t i = 0; i < count; ++i) {
+          if (uvs.at(i).rows() < 2) {
+            continue;
+          }
+          if (timestamps_it->second.at(i) > latest_uv_timestamp) {
+            latest_uv_timestamp = timestamps_it->second.at(i);
+            export_feature.f64_fields["u"] = static_cast<double>(uvs.at(i)(0));
+            export_feature.f64_fields["v"] = static_cast<double>(uvs.at(i)(1));
+          }
+        }
+      }
+      feature->export_latest_metadata(export_feature.u64_fields, export_feature.i64_fields, export_feature.f64_fields);
+    }
+
+    slam_feats[f.second->_featid] = std::move(export_feature);
   }
   return slam_feats;
 }

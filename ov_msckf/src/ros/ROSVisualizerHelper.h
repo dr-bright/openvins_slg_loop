@@ -49,6 +49,7 @@ namespace ov_msckf {
 class State;
 class VioManager;
 class Simulator;
+struct SlamFeatureExport;
 
 /**
  * @brief Helper class that handles some common versions into and out of ROS formats
@@ -71,7 +72,7 @@ public:
    * @param stamp Timestamp to assign to the pointcloud
    * @return ROS pointcloud
    */
-  static sensor_msgs::PointCloud2 get_ros_pointcloud_ex(const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats,
+  static sensor_msgs::PointCloud2 get_ros_pointcloud_ex(const std::map<size_t, SlamFeatureExport> &feats,
                                                         const ros::Time &stamp = ros::Time::now());
 
   /**
@@ -102,7 +103,7 @@ public:
    * @return ROS pointcloud
    */
   static sensor_msgs::msg::PointCloud2 get_ros_pointcloud_ex(std::shared_ptr<rclcpp::Node> node,
-                                                             const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats);
+                                                             const std::map<size_t, SlamFeatureExport> &feats);
 
   /**
    * @brief Given a ov_type::PoseJPL this will convert into the ros format.
