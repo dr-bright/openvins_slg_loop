@@ -23,7 +23,10 @@
 #define OV_CORE_FEATURE_H
 
 #include <Eigen/Eigen>
+#include <cstdint>
 #include <iostream>
+#include <map>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -67,6 +70,20 @@ public:
 
   /// Triangulated position of this feature, in the global frame
   Eigen::Vector3d p_FinG;
+
+  /**
+   * @brief Export optional feature metadata for external reporting.
+   *
+   * Each feature contributes at most one metadata row. Derived feature types can
+   * attach tracker-specific scalar fields while keeping ROS/message types out of
+   * the core feature representation.
+   *
+   * @param u64_fields Unsigned integer metadata fields
+   * @param i64_fields Signed integer metadata fields
+   * @param f64_fields Floating point metadata fields
+   */
+  virtual void export_latest_metadata(std::map<std::string, uint64_t> &u64_fields, std::map<std::string, int64_t> &i64_fields,
+                                      std::map<std::string, double> &f64_fields) const;
 
   /**
    * @brief Remove measurements that do not occur at passed timestamps.

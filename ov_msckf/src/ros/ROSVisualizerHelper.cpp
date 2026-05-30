@@ -28,10 +28,44 @@
 
 #include "types/PoseJPL.h"
 
+#include <cstring>
+#include <set>
+
 using namespace ov_msckf;
 using namespace std;
 
 #if ROS_AVAILABLE == 1
+namespace {
+
+size_t ros_pointfield_size(uint8_t datatype) {
+  switch (datatype) {
+  case sensor_msgs::PointField::INT32:
+  case sensor_msgs::PointField::UINT32:
+  case sensor_msgs::PointField::FLOAT32:
+    return 4;
+  case sensor_msgs::PointField::FLOAT64:
+    return 8;
+  default:
+    return 0;
+  }
+}
+
+void add_pointcloud_field(sensor_msgs::PointCloud2 &cloud, const std::string &name, uint8_t datatype, uint32_t &offset) {
+  sensor_msgs::PointField field;
+  field.name = name;
+  field.offset = offset;
+  field.datatype = datatype;
+  field.count = 1;
+  cloud.fields.push_back(field);
+  offset += static_cast<uint32_t>(ros_pointfield_size(datatype));
+}
+
+template <typename T> void write_pointcloud_value(sensor_msgs::PointCloud2 &cloud, size_t row, uint32_t point_step, uint32_t offset, T value) {
+  std::memcpy(&cloud.data[row * point_step + offset], &value, sizeof(T));
+}
+
+} // namespace
+
 sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(const std::vector<Eigen::Vector3d> &feats, const ros::Time &stamp) {
 
   // Declare message and sizes
@@ -66,7 +100,7 @@ sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(const std::vect
   return cloud;
 }
 
-sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats,
+sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::map<size_t, SlamFeatureExport> &feats,
                                                                     const ros::Time &stamp) {
 
   // Declare message and sizes
@@ -78,32 +112,81 @@ sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::m
   cloud.is_bigendian = false;
   cloud.is_dense = false; // there may be invalid points
 
-  // Setup pointcloud fields
-  sensor_msgs::PointCloud2Modifier modifier(cloud);
-  modifier.setPointCloud2Fields(5, "x", 1, sensor_msgs::PointField::FLOAT32, "y", 1, sensor_msgs::PointField::FLOAT32, "z", 1,
-                                sensor_msgs::PointField::FLOAT32, "feat_id", 1, sensor_msgs::PointField::UINT32, "lifetime", 1,
-                                sensor_msgs::PointField::UINT32);
-  modifier.resize(feats.size());
-
-  // Iterators
-  sensor_msgs::PointCloud2Iterator<float> out_x(cloud, "x");
-  sensor_msgs::PointCloud2Iterator<float> out_y(cloud, "y");
-  sensor_msgs::PointCloud2Iterator<float> out_z(cloud, "z");
-  sensor_msgs::PointCloud2Iterator<uint32_t> out_id(cloud, "feat_id");
-  sensor_msgs::PointCloud2Iterator<uint32_t> out_lifetime(cloud, "lifetime");
-
-  // Fill our iterators
+  std::set<std::string> u64_names;
+  std::set<std::string> i64_names;
+  std::set<std::string> f64_names;
   for (const auto &feat : feats) {
-    *out_x = (float)feat.second.first(0);
-    ++out_x;
-    *out_y = (float)feat.second.first(1);
-    ++out_y;
-    *out_z = (float)feat.second.first(2);
-    ++out_z;
-    *out_id = static_cast<uint32_t>(feat.first);
-    ++out_id;
-    *out_lifetime = static_cast<uint32_t>(feat.second.second);
-    ++out_lifetime;
+    for (const auto &field : feat.second.u64_fields) {
+      u64_names.insert(field.first);
+    }
+    for (const auto &field : feat.second.i64_fields) {
+      i64_names.insert(field.first);
+    }
+    for (const auto &field : feat.second.f64_fields) {
+      f64_names.insert(field.first);
+    }
+  }
+
+  std::map<std::string, uint32_t> u64_offsets;
+  std::map<std::string, uint32_t> i64_offsets;
+  std::map<std::string, uint32_t> f64_offsets;
+  uint32_t offset = 0;
+  add_pointcloud_field(cloud, "x", sensor_msgs::PointField::FLOAT32, offset);
+  add_pointcloud_field(cloud, "y", sensor_msgs::PointField::FLOAT32, offset);
+  add_pointcloud_field(cloud, "z", sensor_msgs::PointField::FLOAT32, offset);
+  add_pointcloud_field(cloud, "feat_id", sensor_msgs::PointField::UINT32, offset);
+  add_pointcloud_field(cloud, "lifetime", sensor_msgs::PointField::UINT32, offset);
+  for (const std::string &name : u64_names) {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime") {
+      continue;
+    }
+    u64_offsets[name] = offset;
+    add_pointcloud_field(cloud, name, sensor_msgs::PointField::UINT32, offset);
+  }
+  for (const std::string &name : i64_names) {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || u64_offsets.count(name) > 0) {
+      continue;
+    }
+    i64_offsets[name] = offset;
+    add_pointcloud_field(cloud, name, sensor_msgs::PointField::INT32, offset);
+  }
+  for (const std::string &name : f64_names) {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || u64_offsets.count(name) > 0 ||
+        i64_offsets.count(name) > 0) {
+      continue;
+    }
+    f64_offsets[name] = offset;
+    add_pointcloud_field(cloud, name, sensor_msgs::PointField::FLOAT64, offset);
+  }
+
+  cloud.point_step = offset;
+  cloud.row_step = cloud.point_step * cloud.width;
+  cloud.data.assign(cloud.row_step * cloud.height, 0);
+
+  size_t row = 0;
+  for (const auto &feat : feats) {
+    write_pointcloud_value<float>(cloud, row, cloud.point_step, cloud.fields[0].offset, static_cast<float>(feat.second.p_FinG(0)));
+    write_pointcloud_value<float>(cloud, row, cloud.point_step, cloud.fields[1].offset, static_cast<float>(feat.second.p_FinG(1)));
+    write_pointcloud_value<float>(cloud, row, cloud.point_step, cloud.fields[2].offset, static_cast<float>(feat.second.p_FinG(2)));
+    write_pointcloud_value<uint32_t>(cloud, row, cloud.point_step, cloud.fields[3].offset, static_cast<uint32_t>(feat.first));
+    write_pointcloud_value<uint32_t>(cloud, row, cloud.point_step, cloud.fields[4].offset, static_cast<uint32_t>(feat.second.lifetime));
+
+    for (const auto &field : feat.second.u64_fields) {
+      if (u64_offsets.count(field.first) > 0) {
+        write_pointcloud_value<uint32_t>(cloud, row, cloud.point_step, u64_offsets.at(field.first), static_cast<uint32_t>(field.second));
+      }
+    }
+    for (const auto &field : feat.second.i64_fields) {
+      if (i64_offsets.count(field.first) > 0) {
+        write_pointcloud_value<int32_t>(cloud, row, cloud.point_step, i64_offsets.at(field.first), static_cast<int32_t>(field.second));
+      }
+    }
+    for (const auto &field : feat.second.f64_fields) {
+      if (f64_offsets.count(field.first) > 0) {
+        write_pointcloud_value<double>(cloud, row, cloud.point_step, f64_offsets.at(field.first), field.second);
+      }
+    }
+    ++row;
   }
 
   return cloud;
@@ -168,7 +251,7 @@ sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(std::share
 }
 
 sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(std::shared_ptr<rclcpp::Node> node,
-                                                                         const std::map<size_t, std::pair<Eigen::Vector3d, size_t>> &feats) {
+                                                                         const std::map<size_t, SlamFeatureExport> &feats) {
 
   // Declare message and sizes
   sensor_msgs::msg::PointCloud2 cloud;
@@ -195,15 +278,15 @@ sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(std::sh
 
   // Fill our iterators
   for (const auto &feat : feats) {
-    *out_x = (float)feat.second.first(0);
+    *out_x = (float)feat.second.p_FinG(0);
     ++out_x;
-    *out_y = (float)feat.second.first(1);
+    *out_y = (float)feat.second.p_FinG(1);
     ++out_y;
-    *out_z = (float)feat.second.first(2);
+    *out_z = (float)feat.second.p_FinG(2);
     ++out_z;
     *out_id = static_cast<uint32_t>(feat.first);
     ++out_id;
-    *out_lifetime = static_cast<uint32_t>(feat.second.second);
+    *out_lifetime = static_cast<uint32_t>(feat.second.lifetime);
     ++out_lifetime;
   }
 

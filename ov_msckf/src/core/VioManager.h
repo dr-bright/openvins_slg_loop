@@ -22,16 +22,18 @@
 #ifndef OV_MSCKF_VIOMANAGER_H
 #define OV_MSCKF_VIOMANAGER_H
 
+#include <Eigen/Eigen>
 #include <Eigen/StdVector>
 #include <algorithm>
 #include <atomic>
 #include <boost/filesystem.hpp>
+#include <cstdint>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <utility>
 #include <string>
+#include <utility>
 
 #include "VioManagerOptions.h"
 
@@ -53,6 +55,14 @@ class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
 class Propagator;
+
+struct SlamFeatureExport {
+  Eigen::Vector3d p_FinG = Eigen::Vector3d::Zero();
+  size_t lifetime = 0;
+  std::map<std::string, uint64_t> u64_fields;
+  std::map<std::string, int64_t> i64_fields;
+  std::map<std::string, double> f64_fields;
+};
 
 /**
  * @brief Core class that manages the entire system
@@ -118,8 +128,8 @@ public:
   /// Returns 3d SLAM features in the global frame
   std::vector<Eigen::Vector3d> get_features_SLAM();
 
-  /// Returns 3d SLAM features keyed by frontend feature id in the global frame
-  std::map<size_t, std::pair<Eigen::Vector3d, size_t>> get_features_SLAM_ex();
+  /// Returns 3d SLAM features keyed by frontend feature id in the global frame, with export metadata when available
+  std::map<size_t, SlamFeatureExport> get_features_SLAM_ex();
 
   /// Returns 3d ARUCO features in the global frame
   std::vector<Eigen::Vector3d> get_features_ARUCO();
