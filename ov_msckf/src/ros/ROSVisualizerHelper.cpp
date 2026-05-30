@@ -136,23 +136,26 @@ sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::m
   add_pointcloud_field(cloud, "z", sensor_msgs::PointField::FLOAT32, offset);
   add_pointcloud_field(cloud, "feat_id", sensor_msgs::PointField::UINT32, offset);
   add_pointcloud_field(cloud, "lifetime", sensor_msgs::PointField::UINT32, offset);
+  f64_offsets["timestamp"] = offset;
+  add_pointcloud_field(cloud, "timestamp", sensor_msgs::PointField::FLOAT64, offset);
   for (const std::string &name : u64_names) {
-    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime") {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || name == "timestamp") {
       continue;
     }
     u64_offsets[name] = offset;
     add_pointcloud_field(cloud, name, sensor_msgs::PointField::UINT32, offset);
   }
   for (const std::string &name : i64_names) {
-    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || u64_offsets.count(name) > 0) {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || name == "timestamp" ||
+        u64_offsets.count(name) > 0) {
       continue;
     }
     i64_offsets[name] = offset;
     add_pointcloud_field(cloud, name, sensor_msgs::PointField::INT32, offset);
   }
   for (const std::string &name : f64_names) {
-    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || u64_offsets.count(name) > 0 ||
-        i64_offsets.count(name) > 0) {
+    if (name == "x" || name == "y" || name == "z" || name == "feat_id" || name == "lifetime" || name == "timestamp" ||
+        u64_offsets.count(name) > 0 || i64_offsets.count(name) > 0) {
       continue;
     }
     f64_offsets[name] = offset;
@@ -170,6 +173,7 @@ sensor_msgs::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud_ex(const std::m
     write_pointcloud_value<float>(cloud, row, cloud.point_step, cloud.fields[2].offset, static_cast<float>(feat.second.p_FinG(2)));
     write_pointcloud_value<uint32_t>(cloud, row, cloud.point_step, cloud.fields[3].offset, static_cast<uint32_t>(feat.first));
     write_pointcloud_value<uint32_t>(cloud, row, cloud.point_step, cloud.fields[4].offset, static_cast<uint32_t>(feat.second.lifetime));
+    write_pointcloud_value<double>(cloud, row, cloud.point_step, f64_offsets.at("timestamp"), stamp.toSec());
 
     for (const auto &field : feat.second.u64_fields) {
       if (u64_offsets.count(field.first) > 0) {
