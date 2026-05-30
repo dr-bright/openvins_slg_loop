@@ -148,6 +148,15 @@ if (catkin_FOUND AND ENABLE_ROS)
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
   )
+
+  add_executable(manual_loop_closure
+    src/manual_loop_closure.cpp
+  )
+  target_link_libraries(manual_loop_closure
+    ${catkin_LIBRARIES}
+    ${OpenCV_LIBRARIES}
+    ${PCL_LIBRARIES}
+  )
 elseif (ament_cmake_FOUND AND ENABLE_ROS)
   find_package(rclcpp REQUIRED)
   find_package(ov_core REQUIRED)
