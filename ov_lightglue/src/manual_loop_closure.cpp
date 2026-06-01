@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <exception>
 #include <fstream>
 #include <iomanip>
@@ -30,6 +31,8 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
+#include <unistd.h>
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/highgui.hpp>
@@ -101,14 +104,14 @@ struct TrajectoryPose {
   std::vector<double> tail;
 };
 
+struct TrajectoryData {
+  std::vector<std::string> header_lines;
+  std::vector<TrajectoryPose> poses;
+};
+
 struct RenderPatch {
   uint64_t display_id = 0;
   int sibling_frame = -1;
-};
-
-struct StdinSeekState {
-  std::atomic<bool> done{false};
-  std::atomic<int> requested_frame{-1};
 };
 
 template <typename T> T read_as(const std::vector<uint8_t> &data, size_t offset) {
@@ -162,6 +165,7 @@ uint64_t read_u64_field(const pcl::PCLPointCloud2 &cloud, size_t point_offset, c
 }
 
 PcdData load_pcd(const std::string &pcd_path) {
+  std::cout << "[load] reading PCD: " << pcd_path << std::endl;
   pcl::PCLPointCloud2 cloud;
   if (pcl::io::loadPCDFile(pcd_path, cloud) != 0) {
     throw std::runtime_error("failed to load PCD file: " + pcd_path);
@@ -213,8 +217,13 @@ PcdData load_pcd(const std::string &pcd_path) {
   }
 
   const size_t point_count = static_cast<size_t>(cloud.width) * static_cast<size_t>(cloud.height);
+  std::cout << "[load] decoding PCD points: " << point_count << std::endl;
   pcd.points.reserve(point_count);
   for (size_t i = 0; i < point_count; ++i) {
+    const size_t decoded_count = i + 1;
+    if (decoded_count % 50000 == 0 || decoded_count == point_count) {
+      std::cout << "[load] decoded PCD points " << decoded_count << "/" << point_count << std::endl;
+    }
     const size_t point_offset = i * static_cast<size_t>(cloud.point_step);
     if (point_offset + cloud.point_step > cloud.data.size()) {
       break;
@@ -250,6 +259,7 @@ PcdData load_pcd(const std::string &pcd_path) {
   std::sort(pcd.points.begin(), pcd.points.end(), [](const OverlayPoint &a, const OverlayPoint &b) {
     return a.timestamp < b.timestamp;
   });
+  std::cout << "[load] decoded PCD points done: " << pcd.points.size() << std::endl;
   return pcd;
 }
 
@@ -299,6 +309,7 @@ std::string first_image_topic(rosbag::View &view) {
 }
 
 std::vector<VideoFrame> load_video_frames(const std::string &bag_path) {
+  std::cout << "[load] reading bag: " << bag_path << std::endl;
   rosbag::Bag bag;
   bag.open(bag_path, rosbag::bagmode::Read);
   rosbag::View all_view(bag);
@@ -311,6 +322,8 @@ std::vector<VideoFrame> load_video_frames(const std::string &bag_path) {
 
   rosbag::View image_view(bag, rosbag::TopicQuery(image_topic));
   std::vector<VideoFrame> frames;
+  const size_t total_messages = image_view.size();
+  std::cout << "[load] decoding image frames: " << total_messages << std::endl;
   for (const rosbag::MessageInstance &m : image_view) {
     sensor_msgs::ImageConstPtr image_msg = m.instantiate<sensor_msgs::Image>();
     if (image_msg == nullptr) {
@@ -324,7 +337,11 @@ std::vector<VideoFrame> load_video_frames(const std::string &bag_path) {
     frame.timestamp = image_msg->header.stamp.toSec();
     frame.image_bgr = image;
     frames.push_back(std::move(frame));
+    if (frames.size() % 100 == 0 || frames.size() == total_messages) {
+      std::cout << "[load] decoded image frames " << frames.size() << "/" << total_messages << std::endl;
+    }
   }
+  std::cout << "[load] decoded image frames done: " << frames.size() << "/" << total_messages << std::endl;
   bag.close();
   if (frames.empty()) {
     throw std::runtime_error("no decodable image frames in bag");
@@ -555,7 +572,16 @@ size_t draw_overlay(cv::Mat &image, const PcdData &pcd, double timestamp, double
 }
 
 std::string key_name_hint() {
-  return "space pause | p/r play | .,/ step | [] speed | Shift+1..9 bind | 1..9 seek | m then 1..9 match | Enter confirm | Backspace abort | s save";
+  return "space pause | f/r play | .,/ step | z/x jump10 | [] speed | h help | g goto";
+}
+
+std::vector<std::string> extended_key_hints() {
+  return {
+      "Shift+1..9 bind bookmark | 1..9 seek bookmark | g opens goto-frame prompt",
+      "m then 1..9 match current frame with bookmark | Enter confirm | \\ abort pending",
+      "z/x jump -/+10 frames, also < > if backend reports them | w wipe rollback, also | if backend reports it",
+      "s save corrected trajectory | p preview current correction using temp trajectory | g goto frame | q/Esc quit",
+  };
 }
 
 int shifted_digit_slot(int key) {
@@ -580,20 +606,8 @@ int ctrl_digit_slot(int key) {
   return -1;
 }
 
-void stdin_seek_thread(StdinSeekState *state) {
-  while (!state->done.load()) {
-    std::cout << "frame> " << std::flush;
-    int frame = -1;
-    if (!(std::cin >> frame)) {
-      state->done.store(true);
-      break;
-    }
-    state->requested_frame.store(frame);
-  }
-}
-
-std::vector<TrajectoryPose> load_trajectory(const std::string &path) {
-  std::vector<TrajectoryPose> trajectory;
+TrajectoryData load_trajectory(const std::string &path) {
+  TrajectoryData trajectory;
   if (path.empty()) {
     return trajectory;
   }
@@ -604,7 +618,11 @@ std::vector<TrajectoryPose> load_trajectory(const std::string &path) {
 
   std::string line;
   while (std::getline(in, line)) {
-    if (line.empty() || line.at(0) == '#') {
+    if (line.empty()) {
+      continue;
+    }
+    if (line.at(0) == '#') {
+      trajectory.header_lines.push_back(line);
       continue;
     }
     std::istringstream ss(line);
@@ -618,12 +636,12 @@ std::vector<TrajectoryPose> load_trajectory(const std::string &path) {
     while (ss >> value) {
       pose.tail.push_back(value);
     }
-    trajectory.push_back(std::move(pose));
+    trajectory.poses.push_back(std::move(pose));
   }
   return trajectory;
 }
 
-void save_trajectory(const std::string &path, const std::vector<TrajectoryPose> &trajectory) {
+void save_trajectory(const std::string &path, const TrajectoryData &trajectory) {
   if (path.empty()) {
     throw std::runtime_error("save trajectory path is empty");
   }
@@ -631,12 +649,11 @@ void save_trajectory(const std::string &path, const std::vector<TrajectoryPose> 
   if (!out.is_open()) {
     throw std::runtime_error("failed to open save trajectory path: " + path);
   }
-  out << "# timestamp(s) tx ty tz qx qy qz qw";
-  if (!trajectory.empty() && !trajectory.front().tail.empty()) {
-    out << " tail...";
+
+  for (const std::string &header : trajectory.header_lines) {
+    out << header << "\n";
   }
-  out << "\n";
-  for (const TrajectoryPose &pose : trajectory) {
+  for (const TrajectoryPose &pose : trajectory.poses) {
     out << std::fixed << std::setprecision(5) << pose.timestamp;
     out << std::setprecision(6) << " " << pose.p.x() << " " << pose.p.y() << " " << pose.p.z() << " " << pose.q.x() << " " << pose.q.y()
         << " " << pose.q.z() << " " << pose.q.w();
@@ -697,20 +714,20 @@ bool estimate_loop_transform(const PcdData &pcd, const std::vector<VideoFrame> &
   return T_target_source.allFinite();
 }
 
-size_t first_trajectory_index_at_or_after(const std::vector<TrajectoryPose> &trajectory, double timestamp) {
-  auto it = std::lower_bound(trajectory.begin(), trajectory.end(), timestamp, [](const TrajectoryPose &pose, double time) {
+size_t first_trajectory_index_at_or_after(const TrajectoryData &trajectory, double timestamp) {
+  auto it = std::lower_bound(trajectory.poses.begin(), trajectory.poses.end(), timestamp, [](const TrajectoryPose &pose, double time) {
     return pose.timestamp < time;
   });
-  return static_cast<size_t>(std::distance(trajectory.begin(), it));
+  return static_cast<size_t>(std::distance(trajectory.poses.begin(), it));
 }
 
-void apply_transform_to_trajectory_tail(std::vector<TrajectoryPose> &trajectory, size_t start_index, const Eigen::Matrix4d &T) {
+void apply_transform_to_trajectory_tail(TrajectoryData &trajectory, size_t start_index, const Eigen::Matrix4d &T) {
   const Eigen::Matrix3d R = T.block<3, 3>(0, 0);
   const Eigen::Vector3d t = T.block<3, 1>(0, 3);
   const Eigen::Quaterniond q_R(R);
-  for (size_t i = start_index; i < trajectory.size(); ++i) {
-    trajectory.at(i).p = R * trajectory.at(i).p + t;
-    trajectory.at(i).q = (q_R * trajectory.at(i).q).normalized();
+  for (size_t i = start_index; i < trajectory.poses.size(); ++i) {
+    trajectory.poses.at(i).p = R * trajectory.poses.at(i).p + t;
+    trajectory.poses.at(i).q = (q_R * trajectory.poses.at(i).q).normalized();
   }
 }
 
@@ -720,8 +737,8 @@ void perform_correction_and_save(const PcdData &pcd, const std::vector<VideoFram
     std::cout << "Save ignored: traj.txt and save_traj.txt must be provided" << std::endl;
     return;
   }
-  std::vector<TrajectoryPose> trajectory = load_trajectory(traj_path);
-  if (trajectory.empty()) {
+  TrajectoryData trajectory = load_trajectory(traj_path);
+  if (trajectory.poses.empty()) {
     std::cout << "Save ignored: trajectory is empty" << std::endl;
     return;
   }
@@ -748,7 +765,7 @@ void perform_correction_and_save(const PcdData &pcd, const std::vector<VideoFram
     const int source_frame = std::max(request.frame_a, request.frame_b);
     const double source_time = frames.at(source_frame).timestamp;
     const size_t start_index = first_trajectory_index_at_or_after(trajectory, source_time);
-    if (start_index >= trajectory.size()) {
+    if (start_index >= trajectory.poses.size()) {
       std::cout << "Loop request frames " << (request.frame_a + 1) << " <-> " << (request.frame_b + 1)
                 << " skipped: no trajectory sample after source frame" << std::endl;
       continue;
@@ -763,6 +780,47 @@ void perform_correction_and_save(const PcdData &pcd, const std::vector<VideoFram
   save_trajectory(save_traj_path, trajectory);
   std::cout << "Saved corrected trajectory to " << save_traj_path << " using " << applied << "/" << sorted_requests.size()
             << " loop requests" << std::endl;
+}
+
+std::string shell_quote(const std::string &text) {
+  std::string quoted = "'";
+  for (char c : text) {
+    if (c == '\'') {
+      quoted += "'\\''";
+    } else {
+      quoted += c;
+    }
+  }
+  quoted += "'";
+  return quoted;
+}
+
+void preview_trajectory(const PcdData &pcd, const std::vector<VideoFrame> &frames, const std::vector<LoopRequest> &loop_requests,
+                        const std::string &traj_path, double tolerance_sec) {
+  if (traj_path.empty()) {
+    std::cout << "Preview ignored: traj.txt must be provided" << std::endl;
+    return;
+  }
+
+  char tmp_template[] = "/tmp/manual_loop_closure_preview_XXXXXX.txt";
+  const int fd = mkstemps(tmp_template, 4);
+  if (fd < 0) {
+    std::cout << "Preview ignored: failed to create temporary trajectory file" << std::endl;
+    return;
+  }
+  close(fd);
+  const std::string temp_path = tmp_template;
+
+  perform_correction_and_save(pcd, frames, loop_requests, traj_path, temp_path, tolerance_sec);
+  const std::string command = "rosrun ov_eval plot_trajectories posyaw " + shell_quote(traj_path) + " " + shell_quote(temp_path);
+  std::cout << "Preview: " << command << std::endl;
+  const int rc = std::system(command.c_str());
+  if (rc != 0) {
+    std::cout << "Preview command returned " << rc << std::endl;
+  }
+  if (std::remove(temp_path.c_str()) != 0) {
+    std::cout << "Preview warning: failed to remove temporary trajectory file: " << temp_path << std::endl;
+  }
 }
 
 } // namespace
@@ -787,6 +845,7 @@ int main(int argc, char **argv) {
   try {
     std::vector<VideoFrame> frames = load_video_frames(bag_path);
     PcdData pcd = load_pcd(pcd_path);
+    const PcdData original_pcd = pcd;
     ov_lightglue::slg_backend backend(superpoint_path, lightglue_path, use_gpu, ov_lightglue::slg_backend::log_level::warning);
     const double fps = infer_fps(frames);
     const double tolerance_sec = std::max(0.5 / fps, 1e-3);
@@ -814,19 +873,11 @@ int main(int argc, char **argv) {
     bool has_pending_loop_request = false;
     uint64_t next_synthetic_id = max_feature_id(pcd) + 1;
     bool awaiting_match_slot = false;
-    std::shared_ptr<StdinSeekState> stdin_state = std::make_shared<StdinSeekState>();
-    std::thread input_thread([stdin_state]() {
-      stdin_seek_thread(stdin_state.get());
-    });
-    input_thread.detach();
+    bool show_extended_help = false;
+    bool goto_mode = false;
+    std::string goto_buffer;
 
     while (true) {
-      const int requested_frame = stdin_state->requested_frame.exchange(-1);
-      if (requested_frame > 0) {
-        frame_index = requested_frame - 1;
-        paused = true;
-      }
-
       frame_index = std::max(0, std::min(frame_index, static_cast<int>(frames.size()) - 1));
       cv::Mat display = frames.at(frame_index).image_bgr.clone();
       const std::unordered_map<size_t, RenderPatch> render_patches = build_render_patches(pcd, confirmed_matches, pending_matches);
@@ -843,28 +894,80 @@ int main(int argc, char **argv) {
                   cv::LINE_AA);
       cv::putText(display, key_name_hint(), cv::Point(12, display.rows - 12), cv::FONT_HERSHEY_SIMPLEX, 0.45,
                   cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
+      if (show_extended_help) {
+        const std::vector<std::string> hints = extended_key_hints();
+        int y = display.rows - 12 - static_cast<int>(hints.size()) * 20;
+        for (const std::string &hint : hints) {
+          cv::putText(display, hint, cv::Point(12, y), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(0, 0, 0), 3, cv::LINE_AA);
+          cv::putText(display, hint, cv::Point(12, y), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
+          y += 20;
+        }
+      }
+      if (goto_mode) {
+        const std::string prompt = "Goto frame: " + goto_buffer + "_";
+        const int y = std::max(54, display.rows - 92);
+        cv::rectangle(display, cv::Point(8, y - 24), cv::Point(std::min(display.cols - 8, 360), y + 8), cv::Scalar(0, 0, 0), cv::FILLED);
+        cv::putText(display, prompt, cv::Point(14, y), cv::FONT_HERSHEY_SIMPLEX, 0.65, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
+      }
 
       cv::imshow(window_name, display);
 
       const int delay_ms = paused ? 0 : std::max(1, static_cast<int>(1000.0 / (fps * speed)));
       const int key = cv::waitKeyEx(delay_ms);
 
-      if (key == 'q' || key == 27) {
+      if (goto_mode) {
+        if (key >= '0' && key <= '9') {
+          goto_buffer.push_back(static_cast<char>(key));
+        } else if (key == '\\') {
+          if (!goto_buffer.empty()) {
+            goto_buffer.pop_back();
+          }
+        } else if (key == 10 || key == 13) {
+          if (!goto_buffer.empty()) {
+            const int requested_frame = std::atoi(goto_buffer.c_str());
+            if (requested_frame > 0) {
+              frame_index = requested_frame - 1;
+            }
+          }
+          goto_mode = false;
+          goto_buffer.clear();
+        } else if (key == 27) {
+          goto_mode = false;
+          goto_buffer.clear();
+        } else if (key == -1 && !paused) {
+          frame_index += direction;
+        }
+      } else if (key == 'q' || key == 27) {
         break;
       } else if (key == ' ') {
         paused = !paused;
-      } else if (key == 'p') {
+      } else if (key == 'f') {
         direction = 1;
         paused = false;
       } else if (key == 'r') {
         direction = -1;
         paused = false;
+      } else if (key == 'p') {
+        preview_trajectory(pcd, frames, loop_requests, traj_path, tolerance_sec);
+      } else if (key == 'h') {
+        show_extended_help = !show_extended_help;
+      } else if (key == 'g') {
+        goto_mode = true;
+        goto_buffer.clear();
+        show_extended_help = false;
+        paused = true;
       } else if (key == '.' || key == 83 || key == 2555904) {
         paused = true;
         frame_index++;
       } else if (key == ',' || key == 81 || key == 2424832) {
         paused = true;
         frame_index--;
+      } else if (key == '>' || key == 'x') {
+        paused = true;
+        frame_index += 10;
+      } else if (key == '<' || key == 'z') {
+        paused = true;
+        frame_index -= 10;
       } else if (key == '[') {
         speed = std::max(0.125, speed * 0.5);
       } else if (key == ']') {
@@ -919,12 +1022,21 @@ int main(int argc, char **argv) {
             paused = true;
           }
         }
-      } else if (key == 8 || key == 127) {
+      } else if (key == '\\') {
         if (!pending_matches.empty()) {
           std::cout << "Aborted " << pending_matches.size() << " pending matches" << std::endl;
         }
         pending_matches.clear();
         has_pending_loop_request = false;
+      } else if (key == '|' || key == 'w') {
+        pcd = original_pcd;
+        pending_matches.clear();
+        confirmed_matches.clear();
+        loop_requests.clear();
+        has_pending_loop_request = false;
+        awaiting_match_slot = false;
+        next_synthetic_id = max_feature_id(pcd) + 1;
+        std::cout << "Rolled back all confirmed matches and loop requests" << std::endl;
       } else if (key == 10 || key == 13) {
         if (!pending_matches.empty() && has_pending_loop_request) {
           const size_t count = pending_matches.size();
@@ -957,7 +1069,6 @@ int main(int argc, char **argv) {
         paused = true;
       }
     }
-    stdin_state->done.store(true);
   } catch (const std::exception &e) {
     std::cerr << "manual_loop_closure failed: " << e.what() << std::endl;
     return EXIT_FAILURE;

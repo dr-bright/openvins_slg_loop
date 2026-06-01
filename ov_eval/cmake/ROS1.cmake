@@ -104,6 +104,7 @@ if (catkin_FOUND AND ENABLE_ROS)
 
     catkin_install_python(PROGRAMS python/pid_ros.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
     catkin_install_python(PROGRAMS python/pid_sys.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+    catkin_install_python(PROGRAMS python/animate.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
     install(DIRECTORY launch/
             DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
@@ -190,5 +191,4 @@ install(TARGETS plot_trajectories
         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
-
 
