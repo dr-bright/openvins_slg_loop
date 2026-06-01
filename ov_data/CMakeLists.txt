@@ -9,6 +9,10 @@ find_package(ament_cmake QUIET)
 if (catkin_FOUND)
     message(STATUS "ROS *1* version found")
     catkin_package()
+    catkin_install_python(PROGRAMS
+        gopro10/gopro10_bag.py
+        DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+    )
 elseif (ament_cmake_FOUND)
     message(STATUS "ROS *2* version found")
     ament_package()
