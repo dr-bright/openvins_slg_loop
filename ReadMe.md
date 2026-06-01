@@ -11,11 +11,11 @@ The project developent during that phase utilized GPT5.5-driven codex agent heav
 
 ## Core features
 
--# TrackSLG, a fully-working and tested AI feature tracker that performs no worse than KLT, even better in bad visibility and high blur scenarios.
--# TrackDINO, semantic feature tracker based on grounding dino model. Is untested as a primary tracker, but works standalone.
--# Expanded tooling: ov_eval animate.py, better pose_to_file, pointcloud_to_file.
--# ROS1Visualizer publishes rich pointcloud into /ov_msckf/points_slam, with u,v and slg_desc_xxx, allowing for postprocessing.
--# manual_loop_closure gui app allows for slg-based loop closure in post-processing. Estimated trajectory is corrected using manual frames selection. slg_backend is used to match the two frames to each other. The app takes data from traj.txt and points.pcd dumped from rich points_slam pointcloud with pointcloud_to_file.
+- TrackSLG, a fully-working and tested AI feature tracker that performs no worse than KLT, even better in bad visibility and high blur scenarios.
+- TrackDINO, semantic feature tracker based on grounding dino model. Is untested as a primary tracker, but works standalone.
+- Expanded tooling: ov_eval animate.py, better pose_to_file, pointcloud_to_file.
+- ROS1Visualizer publishes rich pointcloud into /ov_msckf/points_slam, with u,v and slg_desc_xxx, allowing for postprocessing.
+- manual_loop_closure gui app allows for slg-based loop closure in post-processing. Estimated trajectory is corrected using manual frames selection. slg_backend is used to match the two frames to each other. The app takes data from traj.txt and points.pcd dumped from rich points_slam pointcloud with pointcloud_to_file.
 
 ## Building
 
