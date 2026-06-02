@@ -1,0 +1,104 @@
+FROM drjackbright/ros-noetic-trt8.5.3
+
+SHELL [ "/usr/bin/bash", "-c" ]
+
+WORKDIR /app/workspace/src/openvins_slg_loop
+
+# initialize catkin workspace
+
+RUN <<EOT
+    apt-get update;
+    xargs apt-get install -y \
+        python3-tk ffmpeg python3-pycryptodome;
+    # rm -rf /var/lib/apt/lists/*
+EOT
+
+RUN wget https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-gpu-1.16.3.tgz && \
+    tar -zxvf onnxruntime-linux-x64-gpu-1.16.3.tgz && \
+    cp -r onnxruntime-linux-x64-gpu-1.16.3/include/* /usr/local/include/ && \
+    cp -r onnxruntime-linux-x64-gpu-1.16.3/lib/* /usr/local/lib/ && \
+    ldconfig && \
+    rm -rf onnxruntime-linux-x64-gpu-1.16.3.tgz onnxruntime-linux-x64-gpu-1.16.3
+
+RUN <<EOT
+source /opt/ros/noetic/setup.bash
+source /app/workspace/devel/setup.bash
+python3 -m pip install \
+    pandas matplotlib fire tqdm scipy \
+    Pillow pypcd4 transformers build
+python3 -m pip install --force-reinstall Pillow
+EOT
+
+RUN <<EOT     # install-py_gpmf_parser.bash
+#!/usr/bin/bash
+
+git clone --recurse-submodules https://github.com/urbste/py-gpmf-parser.git /tmp/py-gpmf-parser
+cd /tmp/py-gpmf-parser
+python3 -c "
+import sys
+file = open(sys.argv[1], 'r+t', encoding='utf-8')
+text = file.read()
+tok1 = 'license = \"Apache-2.0\"'
+tok2 = 'license = { text = \"Apache-2.0\" }'
+tok3 = 'license-files = [\"LICENSE\"]'
+print(f'tok1: {tok1}, tok2: {tok2}, tok3: {tok3}')
+text = text.replace(tok1, tok2)
+text = text.replace(tok3, '')
+file.seek(0)
+file.truncate()
+file.write(text)
+file.close()
+
+"   pyproject.toml
+python3 -m build --wheel
+pip3 install dist/*.whl
+cd ..
+rm -rf /tmp/py-gpmf-parser
+EOT
+
+# if you've cloned the repo:  [ONLY_IF_REPO_CLONE]
+COPY ./packages ./packages
+# if you didnt or want a live link for dev container, do this
+# RUN git clone -b dev https://github.com/dr-bright/openvins_slg_loop .
+
+
+
+RUN <<EOT
+cd ../..  # goto catkin ws
+source /opt/ros/noetic/setup.bash
+ROS_PACKAGE_PATH="$(realpath src):$ROS_PACKAGE_PATH"
+sudo rosdep init
+rosdep update --rosdistro=noetic
+# sudo apt update  # if not run previously
+rosdep install --all -i -y
+# sudo rm -rf /var/lib/apt/lists/*  # if want compact image
+EOT
+
+
+# ov_msckf build process has a history of killing OS on multiple of my machines
+# in docker windows it crashes the WSL and I need to restart or reboot even
+# I am unaware of the reasons but -j1 is a must for me and most likely for you too
+RUN <<EOT
+    cd ../..
+    source /opt/ros/noetic/setup.bash
+    catkin config --skiplist ov_msckf
+    catkin build
+    catkin config --no-skiplist
+    catkin build -j1
+EOT
+
+# copy the rest of repo [ONLY_IF_REPO_CLONE]
+COPY --exclude=./packages/ . .
+
+RUN <<EOT
+    # check existence of onnx/, fetch weights if not found
+    if [ -d "onnx" ]; then
+        echo "ONNX folder exists, skip fetching."
+    else
+        echo "ONNX folder does not exist, start fetching."
+        ./scripts/fetch_weights.sh
+    fi
+EOT
+
+VOLUME [ "/app/data" ]
+# EXPOSE 80

@@ -2,26 +2,25 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(realpath "$(dirname "$0")")"
-REPO_ROOT="${SCRIPT_DIR}/../.."
+REPO_ROOT="${SCRIPT_DIR}/.."
+PROFILE_NAME=$1
+TRACKER_MODE=$2
+BAG_PATH="$(realpath "$3")"
+BAG_START=0
+if (( $# >= 4 )); then
+  BAG_START=$4
+fi
 
-# source "${REPO_ROOT}/scripts/unit_tests/_common.sh"
 
-BAG_PATH="$(realpath "$2")"
 BAG_DIR="$(dirname "${BAG_PATH}")"
 BAG_NAME="$(basename "${BAG_PATH}")"
-TEST_ARTIFACT_DIR="${BAG_DIR}/openvins_slg_slam/${BAG_NAME}"
-TRACKER_MODE="$1"
-CONFIG="/data/gopro10/config/openvins_slg_slam/gopro640.yaml"
+CONFIG="$SCRIPT_DIR/../config/${PROFILE_NAME}/estimator_config.yaml"
+TEST_ARTIFACT_DIR="${BAG_DIR}/openvins_slg_loop_${BAG_NAME}"
 EST_OUT="${TEST_ARTIFACT_DIR}/traj_${TRACKER_MODE}.txt"
 PCD_OUT="${TEST_ARTIFACT_DIR}/points_${TRACKER_MODE}.pcd"
 TIME_OUT="${TEST_ARTIFACT_DIR}/timing_${TRACKER_MODE}.txt"
 EVAL_OUT="${TEST_ARTIFACT_DIR}/metrics_${TRACKER_MODE}.txt"
 MP4_OUT="${TEST_ARTIFACT_DIR}/viz_${TRACKER_MODE}.mp4"
-
-BAG_START="$3"
-if [ -z "${BAG_START}" ]; then
-  BAG_START=0.0
-fi
 
 if [[ "${TRACKER_MODE}" == "slg" ]]; then
   USE_KLT=false
@@ -32,7 +31,7 @@ fi
 mkdir -p "${TEST_ARTIFACT_DIR}"
 
 roslaunch ov_lightglue serial_new.launch \
-  config:=gopro10 \
+  config:=${PROFILE_NAME} \
   dataset:="${BAG_NAME}" \
   bag:="${BAG_PATH}" \
   config_path:="${CONFIG}" \
@@ -48,4 +47,6 @@ roslaunch ov_lightglue serial_new.launch \
   path_viz:="${MP4_OUT}" \
   slg_use_gpu:=true \
   bag_start:="${BAG_START}" \
-  use_klt:="${USE_KLT}"
+  use_klt:="${USE_KLT}" \
+  slg_superpoint_onnx_path:="$REPO_ROOT/onnx/weights_latest/superpoint.onnx" \
+  slg_lightglue_onnx_path:="$REPO_ROOT/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx"

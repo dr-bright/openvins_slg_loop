@@ -1,0 +1,23 @@
+services:
+  dummy_ros_trt:
+    image: drjackbright/ros-noetic-trt8.5.3
+    build:
+      context: .
+      dockerfile: deploy/ros-noetic-trt8.5.3.docker
+  openvins_slg_loop:
+    image: drjackbright/openvins-slg-loop
+    build:
+      context: .
+      dockerfile: deploy/openvins-slg-loop.docker
+    entrypoint: "bash"
+    tty: true
+    volumes:
+      - F:/vins_data:/app/data:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  

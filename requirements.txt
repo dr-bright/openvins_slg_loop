@@ -1,0 +1,9 @@
+pandas
+matplotlib
+fire
+tqdm
+scipy
+Pillow
+pypcd4
+transformers
+build
