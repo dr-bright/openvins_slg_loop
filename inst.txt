@@ -1,0 +1,85 @@
+1. Создание контейнера из исходников:
+
+    git clone https://github.com/dr-bright/openvins_slg_loop
+    cd openvins_slg_loop
+    git checkout dev
+
+    # открыть compose.yml в любом редакторе
+    # убедиться что --volumes F:\vins_data заменено на
+    #   соответствущий путь к папке с видео для обработки
+
+    docker compose build openvins_slg_loop  # сборка образа
+
+    # убедиться что сборка успешна
+
+    docker compose up openvins_slg_loop     # создание и запуск контейнера
+
+    # убедиться что контейнер создался, запустился и запущен
+
+2.1. Доступ к контейнеру возможен из вкладки Exec в Docker Desktop GUI
+ИЛИ
+2.2. Доступ к контейнеру из терминала:
+    
+    docker exec -it <container_hash> bash
+
+ВНУТРИ КОНТЕЙНЕРА
+
+3. Преобразование MP4 -> BAG:
+
+    rosrun ov_data gopro10_bag.py /app/data/fast_hit.mp4 /app/data/fast_hit.bag
+
+4. Прогон данных через одометр OpenVINS:
+
+    /app/workspace/src/openvins_slg_loop/scripts/estimator_run.sh gopro10 slg /app/data/fast_hit.bag 12
+    # 12 в данном случае означает "начиная с 12ой секунды"
+    # slg -- тип трекера, может быть klt или slg
+    # замыкание цикла возможно только с slg
+
+5. Визуализация прогнозной траектории:
+
+    rosrun ov_eval plot_trajectories posyaw /app/data/openvins_slg_loop_fast_hit.bag/traj_slg.txt
+
+6. Запуск приложения для замыкания цикла на посткоррекции:
+
+    rosrun ov_lightglue manual_loop_closure /app/data/fast_hit.bag \
+        /app/data/openvins_slg_loop_fast_hit.bag/points_slg.pcd \
+        /app/workspace/src/openvins_slg_loop/onnx/weights_latest/superpoint.onnx
+        /app/workspace/src/openvins_slg_loop/onnx/weights_latest/superpoint_lightglue_fused_cpu.onnx
+        /app/data/openvins_slg_loop_fast_hit.bag/traj_slg.txt
+        /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt
+
+6.1 Управление приложением
+
+    Справка на экране, расширенная справка открывается и закрывается клавишей h
+    Закрытие окна q
+    Перемещение по видео клавишами <>, zx
+        (A -> B означает нажать сначала А, затем B)
+        (A + B означает нажать А и B вместе)
+    Добавление кадра в закладку: shift + 1, shift + 2, ...
+    Сопоставление текущего кадра с закладкой: m -> 1, m -> 2, ...
+    Применение сопоставления: Enter
+    Предпросмотр результата замыкания: p
+    Сохранение результата замыкания в файл: s
+    Сброс всех сопоставлений: w
+
+6.2. Последовательность действий для правильной постобработки fast_hit:
+
+    - Запустить manual_loop_closure
+    - g 1302 enter
+    - Shift + 1
+    - g 1496 enter
+    - m -> 1
+    - Enter
+    - s
+
+7. Визуализация скорректированной траектории:
+
+    rosrun ov_eval plot_trajectories posyaw /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt
+
+8. Анимация скорректированной траектории:
+
+    rosrun ov_eval animate.py /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt \
+        --bag /app/data/fast_hit.bag
+        --vertical --fps 20 \
+        --save /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.mp4
+

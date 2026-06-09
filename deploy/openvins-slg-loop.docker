@@ -82,9 +82,8 @@ RUN <<EOT
     cd ../..
     source /opt/ros/noetic/setup.bash
     catkin config --skiplist ov_msckf
-    catkin build
-    catkin config --no-skiplist
-    catkin build -j1
+    catkin build -j4
+    catkin build ov_msckf -j1
 EOT
 
 # copy the rest of repo [ONLY_IF_REPO_CLONE]
