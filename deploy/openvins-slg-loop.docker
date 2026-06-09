@@ -29,7 +29,7 @@ python3 -m pip install \
 python3 -m pip install --force-reinstall Pillow
 EOT
 
-RUN <<EOT     # install-py_gpmf_parser.bash
+RUN <<EOT
 #!/usr/bin/bash
 
 git clone --recurse-submodules https://github.com/urbste/py-gpmf-parser.git /tmp/py-gpmf-parser
@@ -98,6 +98,8 @@ RUN <<EOT
         echo "ONNX folder does not exist, start fetching."
         ./scripts/fetch_weights.sh
     fi
+    echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+    echo "source /app/workspace/devel/setup.bash" >> ~/.bashrc
 EOT
 
 VOLUME [ "/app/data" ]

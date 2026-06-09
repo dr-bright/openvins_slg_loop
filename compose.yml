@@ -13,6 +13,11 @@ services:
     tty: true
     volumes:
       - F:/vins_data:/app/data:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:ro
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.docker.xauth
     deploy:
       resources:
         reservations:
@@ -20,4 +25,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  
