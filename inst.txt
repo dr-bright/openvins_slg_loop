@@ -24,22 +24,26 @@
 
 ВНУТРИ КОНТЕЙНЕРА
 
-3. Преобразование MP4 -> BAG:
+3. Загрузка весов моделей:
+    
+    ./scripts/fetch_weights.sh
+
+4. Преобразование MP4 -> BAG:
 
     rosrun ov_data gopro10_bag.py /app/data/fast_hit.mp4 /app/data/fast_hit.bag
 
-4. Прогон данных через одометр OpenVINS:
+5. Прогон данных через одометр OpenVINS:
 
-    /app/workspace/src/openvins_slg_loop/scripts/estimator_run.sh gopro10 slg /app/data/fast_hit.bag 12
+    ./scripts/estimator_run.sh gopro10 slg /app/data/fast_hit.bag 12
     # 12 в данном случае означает "начиная с 12ой секунды"
     # slg -- тип трекера, может быть klt или slg
     # замыкание цикла возможно только с slg
 
-5. Визуализация прогнозной траектории:
+6. Визуализация прогнозной траектории:
 
     rosrun ov_eval plot_trajectories posyaw /app/data/openvins_slg_loop_fast_hit.bag/traj_slg.txt
 
-6. Запуск приложения для замыкания цикла на посткоррекции:
+7. Запуск приложения для замыкания цикла на посткоррекции:
 
     rosrun ov_lightglue manual_loop_closure /app/data/fast_hit.bag \
         /app/data/openvins_slg_loop_fast_hit.bag/points_slg.pcd \
@@ -48,7 +52,7 @@
         /app/data/openvins_slg_loop_fast_hit.bag/traj_slg.txt
         /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt
 
-6.1 Управление приложением
+7.1 Управление приложением
 
     Справка на экране, расширенная справка открывается и закрывается клавишей h
     Закрытие окна q
@@ -62,7 +66,7 @@
     Сохранение результата замыкания в файл: s
     Сброс всех сопоставлений: w
 
-6.2. Последовательность действий для правильной постобработки fast_hit:
+7.2. Последовательность действий для правильной постобработки fast_hit:
 
     - Запустить manual_loop_closure
     - g 1302 enter
@@ -72,11 +76,11 @@
     - Enter
     - s
 
-7. Визуализация скорректированной траектории:
+8. Визуализация скорректированной траектории:
 
     rosrun ov_eval plot_trajectories posyaw /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt
 
-8. Анимация скорректированной траектории:
+9. Анимация скорректированной траектории:
 
     rosrun ov_eval animate.py /app/data/openvins_slg_loop_fast_hit.bag/loop_slg.txt \
         --bag /app/data/fast_hit.bag
